@@ -1,0 +1,16 @@
+[project]
+name = "reliable-rsi"
+version = "0.1.0"
+description = "Reliable Recursive Self-Improvement harness for COLM 2026"
+requires-python = ">=3.11"
+dependencies = [
+    "datasets>=4.0",
+    "huggingface_hub>=1.0",
+    "pandas>=2.0",
+    "pyarrow>=15.0",
+]
+
+[tool.pyright]
+pythonVersion = "3.11"
+venvPath = "."
+venv = ".venv"
