@@ -1,6 +1,6 @@
 # ReCode: Reliable Recursive Self-Improvement
 
-Research harness for **Reliable RSI** — a system that self-improves a coding agent across economic value, truthfulness, instruction following, and safety. Targeting **COLM 2026** (San Francisco, Oct 6–9).
+Research harness for **Reliable RSI** — a system that self-improves a coding agent across economic value, truthfulness, instruction following, and safety. 
 
 ## Overview
 
