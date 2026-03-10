@@ -2,7 +2,7 @@
 
 > **Project:** Reliable RSI for COLM 2026
 > **Date:** 2026-03-07
-> **Status:** DRAFT — Awaiting design approval
+> **Status:** Phase 0 complete, Phase 1 in progress — eval harness operational
 > **Target Venue:** COLM 2026 (San Francisco, Oct 6-9, 2026)
 
 ---
@@ -144,74 +144,80 @@ def composite_score(gdpval_score, hallucination_score, ifeval_score, safety_scor
 
 Weights are tunable. GDPval dominates because it's the paper's primary contribution.
 
-### 6.2 Harness Structure (adapted from SkyDiscover)
+### 6.2 Harness Structure (as built)
 
 ```
-harness/
-  evaluators/
-    gdpval_evaluator.py       # GDPval rubric scoring (frozen judge)
-    hallucination_evaluator.py # TruthfulQA + SimpleQA scoring
-    ifeval_evaluator.py        # IFEval programmatic verification
-    safety_evaluator.py        # HarmBench + OR-Bench scoring
-  runners/
-    task_runner.py             # Runs agent on tasks, collects traces
-    batch_runner.py            # Runs a full slice (22 tasks)
-  search/
-    evolutionary.py            # AdaEvolve/EvoX from SkyDiscover
-    meta_improver.py           # 7-step meta-improvement (from ReCodeAgent)
-    selector.py                # CI-based selection + rollback
-  data/
-    gdpval/                    # Downloaded GDPval dataset
-    splits/
-      data_split.json          # Zipper schedule assignment
-    benchmarks/
-      truthfulqa/
-      simpleqa/
-      ifeval/
-      harmbench/
-      or_bench/
+src/eval/                        # ← IMPLEMENTED
   agents/
-    agent.py                   # The ONLY file that changes (task-solving agent)
-    judge_agent.py             # FROZEN — Gemini 3 Pro Preview
-    meta_agent.py              # FROZEN — Claude Opus 4.6 code architect
+    base.py                      # BaseAgent ABC + AgentResult dataclass
+    claude_code.py               # Claude Code via claude-agent-sdk
+    gemini_cli.py                # Gemini CLI via subprocess
+    codex.py                     # OpenAI Codex CLI via subprocess
+  evaluators/
+    base.py                      # BaseEvaluator ABC + EvalResult dataclass
+    gdpval.py                    # Keyword heuristic (fast, free)
+    gdpval_judge.py              # Gemini Pro frozen judge (accurate)
+  runner.py                      # GDPvalRunner — orchestrates agent + evaluator
+  visualize.py                   # Paper-quality plots
+scripts/
+  run_gdpval_eval.py             # CLI entry point (--agent, --judge, --slice, etc.)
+results/
+  <agent>_<timestamp>/
+    traces.json                  # Raw agent output
+    eval.json                    # Scores only
+  workspace_<agent>/<task_id>/   # Per-task isolated workspaces with deliverables
+
+src/eval/ (TODO)                 # ← NOT YET IMPLEMENTED
+  evaluators/
+    hallucination_evaluator.py   # TruthfulQA + SimpleQA scoring
+    ifeval_evaluator.py          # IFEval programmatic verification
+    safety_evaluator.py          # HarmBench + OR-Bench scoring
+  search/
+    evolutionary.py              # AdaEvolve/EvoX from SkyDiscover
+    meta_improver.py             # 7-step meta-improvement (from ReCodeAgent)
+    selector.py                  # CI-based selection + rollback
   archive/
-    iteration_0/               # Baseline snapshot
-    iteration_1/               # After first improvement
-    ...
-  config/
-    harness_config.yaml        # Model selection, weights, thresholds
-  tests/
-    test_evaluators.py
-    test_splits.py
-    test_runner.py
+    iteration_0/                 # Baseline snapshot
+    iteration_1/                 # After first improvement
 ```
 
 ---
 
 ## 7. Implementation Phases
 
-### Phase 0: Setup & Download (Week 1)
-- [ ] Clone SkyDiscover repo, study harness structure
-- [ ] Download GDPval from HuggingFace
-- [ ] Download hallucination benchmarks (TruthfulQA, SimpleQA)
-- [ ] Download IFEval
-- [ ] Download safety benchmarks (HarmBench, OR-Bench)
-- [ ] Set up project structure as above
-- [ ] Implement data_split.py (zipper schedule from ReCodeAgent Algorithm 1)
+### Phase 0: Setup & Download (Week 1) — COMPLETE ✅
+- [x] Clone SkyDiscover repo, study harness structure
+- [x] Download GDPval from HuggingFace
+- [x] Download hallucination benchmarks (TruthfulQA, SimpleQA)
+- [x] Download IFEval
+- [x] Download safety benchmarks (HarmBench, OR-Bench)
+- [x] Set up project structure as above
+- [x] Implement data_split.py (zipper schedule from ReCodeAgent Algorithm 1)
 
-### Phase 1: Sanity Check — Baseline (Week 2)
-- [ ] Implement GDPval evaluator with frozen Gemini judge
-- [ ] Run Claude Code Opus baseline on all 220 GDPval tasks
-- [ ] Run Claude Code Opus baseline on hallucination/IFEval/safety benchmarks
-- [ ] Record baseline scores per slice, per benchmark
+### Phase 1: Sanity Check — Baseline (Week 2) — IN PROGRESS 🔧
+- [x] Implement GDPval keyword evaluator (baseline heuristic)
+- [x] Implement GDPval frozen Gemini judge evaluator (`src/eval/evaluators/gdpval_judge.py`)
+- [x] Implement pluggable agent backends: Claude Code, Gemini CLI, Codex (`src/eval/agents/`)
+- [x] Implement `GDPvalRunner` — sends tasks to agents via SDK, collects traces, scores responses
+- [x] Implement per-task isolated workspaces (parallel-safe)
+- [x] Implement file content extraction from agent deliverables (.docx, .xlsx, .pdf, .pptx, .xls)
+- [x] Implement split output: `traces.json` (raw) + `eval.json` (scores)
+- [x] Implement paper-quality visualization (`src/eval/visualize.py`) — trajectory, sector, failure taxonomy, model comparison, dashboard
+- [x] Run Claude Code n=1 sanity check on GDPval — **94% on keyword heuristic** (51/52 criteria)
+- [ ] Enable Gemini API billing and run Gemini judge baseline
+- [ ] Run Claude Code Opus baseline on all 6 dev slices (22 tasks each)
+- [ ] Run Gemini CLI baseline on all 6 dev slices
+- [ ] Run Codex baseline on all 6 dev slices
+- [ ] Run baselines on hallucination/IFEval/safety benchmarks
+- [ ] Record baseline scores per slice, per benchmark, per agent
 - [ ] Verify zipper schedule produces disjoint slices
-- [ ] **Milestone:** Baseline numbers for all benchmarks
+- [ ] **Milestone:** Baseline numbers for all benchmarks and all agents
 
 ### Phase 2: Custom Harness (Week 3-4)
-- [ ] Adapt SkyDiscover's evaluator pattern for our benchmark suite
-- [ ] Implement `task_runner.py` — runs agent, collects traces
-- [ ] Implement `batch_runner.py` — runs full slice
-- [ ] Implement composite scoring function
+- [x] Implement `task_runner.py` — runs agent, collects traces (done as `runner.py`)
+- [x] Batch runner with concurrency support (done in `GDPvalRunner.run_batch()`)
+- [ ] Implement composite scoring function (aggregate across 4 benchmark axes)
+- [ ] Implement evaluators for other benchmarks (IFEval programmatic, SimpleQA exact-match, HarmBench, OR-Bench)
 - [ ] Implement archive system (code snapshots + results per iteration)
 - [ ] Implement pre-flight gate (syntax + unit tests)
 - [ ] Implement acceptance rule (>=1.5pp delta, >=12/22 wins, no critical regressions)

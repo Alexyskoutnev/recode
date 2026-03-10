@@ -21,5 +21,11 @@ build/
 *.swp
 *.swo
 
+# Secrets
+.env
+
+# Results
+/results/
+
 # OS
 .DS_Store
