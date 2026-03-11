@@ -1,4 +1,12 @@
-"""Zipper schedule splitter for GDPval (Algorithm 1 from ReCodeAgent)."""
+"""Zipper schedule splitter for GDPval.
+
+Splits the 220-task GDPval dataset into 10 slices of 22 tasks each:
+  - 8 dev slices  (S1–S8): for iterative development and tuning.
+  - 2 eval slices (E1–E2): held-out evaluation, run only at the end.
+
+Tasks are assigned round-robin by occupation so every slice gets a
+representative mix of occupations.
+"""
 
 from __future__ import annotations
 
@@ -8,35 +16,40 @@ from pathlib import Path
 
 from src.data.types import Sample
 
+NUM_DEV_SLICES = 8
+NUM_EVAL_SLICES = 2
+NUM_SLICES = NUM_DEV_SLICES + NUM_EVAL_SLICES
+TASKS_PER_SLICE = 22
+
 
 @dataclass(frozen=True)
 class ZipperSplit:
     """Result of the zipper split assignment."""
 
-    dev_slices: dict[str, list[Sample]]  # S1..S6, 22 tasks each.
-    test_vault: list[Sample]             # 88 tasks, used once.
-    occupation_groups: dict[str, list[str]]  # "odd" / "even" -> occupations.
+    dev_slices: dict[str, list[Sample]]   # S1..S8, 22 tasks each.
+    eval_slices: dict[str, list[Sample]]  # E1..E2, 22 tasks each.
 
 
-def zipper_split(samples: list[Sample], seed: int = 42) -> ZipperSplit:
-    """Split GDPval into 6 disjoint dev slices + 88 test vault.
+def zipper_split(samples: list[Sample]) -> ZipperSplit:
+    """Split GDPval into 8 dev slices + 2 eval slices (22 tasks each).
 
-    Algorithm (from ReCodeAgent paper):
+    The split is fully deterministic (no randomness) so all agents
+    are evaluated on the exact same set of tasks per slice.
+
+    Algorithm:
     1. Group samples by occupation (44 occupations, 5 tasks each).
     2. Sort occupations alphabetically.
-    3. Assign occupations to odd (indices 0,2,4,...) and even (1,3,5,...) groups.
-    4. For each occupation, sort tasks deterministically.
-    5. Reserve 2 tasks per occupation for the test vault.
-    6. Assign remaining 3 tasks per occupation to slices using labels A, B, C:
-       - Odd group:  A->S1, B->S3, C->S5
-       - Even group: A->S2, B->S4, C->S6
+    3. Sort tasks within each occupation by task ID.
+    4. Flatten into a single ordered list (occupation-major order).
+    5. Round-robin assign tasks across 10 slices so each slice gets
+       a representative mix of occupations.
+    6. First 8 slices are dev (S1–S8), last 2 are eval (E1–E2).
 
     Args:
         samples: List of GDPval samples (must be exactly 220).
-        seed: Random seed (unused — split is deterministic by occupation sort).
 
     Returns:
-        ZipperSplit with dev_slices (S1..S6) and test_vault.
+        ZipperSplit with dev_slices (S1–S8) and eval_slices (E1–E2).
     """
     # Group by occupation.
     by_occupation: dict[str, list[Sample]] = {}
@@ -55,55 +68,31 @@ def zipper_split(samples: list[Sample], seed: int = 42) -> ZipperSplit:
     for occ in occupations:
         by_occupation[occ].sort(key=lambda s: s.id)
 
-    # Odd/even groups.
-    odd_occs = [occupations[i] for i in range(0, len(occupations), 2)]
-    even_occs = [occupations[i] for i in range(1, len(occupations), 2)]
+    # Flatten: iterate occupations in order, tasks within each in order.
+    ordered: list[Sample] = []
+    for occ in occupations:
+        ordered.extend(by_occupation[occ])
 
-    dev_slices: dict[str, list[Sample]] = {f"S{i}": [] for i in range(1, 7)}
-    test_vault: list[Sample] = []
+    assert len(ordered) == 220, f"Expected 220 tasks, got {len(ordered)}"
 
-    # Assign for odd group.
-    odd_slice_map = {"A": "S1", "B": "S3", "C": "S5"}
-    for occ in odd_occs:
-        tasks = by_occupation[occ]
-        _assign_occupation_tasks(tasks, odd_slice_map, dev_slices, test_vault)
+    # Round-robin into 10 slices.
+    slices: list[list[Sample]] = [[] for _ in range(NUM_SLICES)]
+    for i, sample in enumerate(ordered):
+        slices[i % NUM_SLICES].append(sample)
 
-    # Assign for even group.
-    even_slice_map = {"A": "S2", "B": "S4", "C": "S6"}
-    for occ in even_occs:
-        tasks = by_occupation[occ]
-        _assign_occupation_tasks(tasks, even_slice_map, dev_slices, test_vault)
-
-    # Validate.
-    total_dev = sum(len(s) for s in dev_slices.values())
-    assert total_dev == 132, f"Expected 132 dev tasks, got {total_dev}"
-    assert len(test_vault) == 88, f"Expected 88 test vault tasks, got {len(test_vault)}"
-    for slice_name, slice_samples in dev_slices.items():
-        assert len(slice_samples) == 22, (
-            f"{slice_name} has {len(slice_samples)} tasks, expected 22"
+    # Validate all slices are 22.
+    for idx, sl in enumerate(slices):
+        assert len(sl) == TASKS_PER_SLICE, (
+            f"Slice {idx} has {len(sl)} tasks, expected {TASKS_PER_SLICE}"
         )
 
-    return ZipperSplit(
-        dev_slices=dev_slices,
-        test_vault=test_vault,
-        occupation_groups={"odd": odd_occs, "even": even_occs},
-    )
+    # Name them: S1–S8 for dev, E1–E2 for eval.
+    dev_slices = {f"S{i+1}": slices[i] for i in range(NUM_DEV_SLICES)}
+    eval_slices = {
+        f"E{i+1}": slices[NUM_DEV_SLICES + i] for i in range(NUM_EVAL_SLICES)
+    }
 
-
-def _assign_occupation_tasks(
-    tasks: list[Sample],
-    slice_map: dict[str, str],
-    dev_slices: dict[str, list[Sample]],
-    test_vault: list[Sample],
-) -> None:
-    """Assign 5 tasks from one occupation: 3 dev (A/B/C) + 2 test vault."""
-    if len(tasks) != 5:
-        raise ValueError(f"Expected 5 tasks per occupation, got {len(tasks)}")
-    labels = ["A", "B", "C"]
-    for i, label in enumerate(labels):
-        dev_slices[slice_map[label]].append(tasks[i])
-    test_vault.append(tasks[3])
-    test_vault.append(tasks[4])
+    return ZipperSplit(dev_slices=dev_slices, eval_slices=eval_slices)
 
 
 def save_split(split: ZipperSplit, output_path: Path) -> None:
@@ -113,8 +102,10 @@ def save_split(split: ZipperSplit, output_path: Path) -> None:
             name: [s.id for s in samples]
             for name, samples in split.dev_slices.items()
         },
-        "test_vault": [s.id for s in split.test_vault],
-        "occupation_groups": split.occupation_groups,
+        "eval_slices": {
+            name: [s.id for s in samples]
+            for name, samples in split.eval_slices.items()
+        },
     }
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w") as f:

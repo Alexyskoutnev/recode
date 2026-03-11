@@ -29,3 +29,10 @@ build/
 
 # OS
 .DS_Store
+
+# Claude debug output
+claude_stdout*.txt
+claude_stderr*.txt
+
+# Scratch / temp
+test.txt

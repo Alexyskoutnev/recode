@@ -22,7 +22,7 @@ from src.eval.evaluators.base import BaseEvaluator, EvalResult
 logger = logging.getLogger(__name__)
 
 # Default model — frozen across the entire experiment
-DEFAULT_JUDGE_MODEL = "gemini-2.5-pro-preview-06-05"
+DEFAULT_JUDGE_MODEL = "gemini-3.1-pro-preview"
 
 JUDGE_SYSTEM_PROMPT = """\
 You are a strict, impartial grading judge for professional work tasks.
@@ -160,6 +160,7 @@ Evaluate the RESPONSE against each criterion in the RUBRIC. Return JSON only."""
         config = GenerateContentConfig(
             temperature=self._temperature,
             system_instruction=JUDGE_SYSTEM_PROMPT,
+            response_mime_type="application/json",
         )
         response = self._client.models.generate_content(
             model=self._model,

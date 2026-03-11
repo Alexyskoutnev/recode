@@ -11,8 +11,11 @@ Usage:
     # Run with OpenAI Codex
     python scripts/run_gdpval_eval.py --agent codex --n 1
 
-    # Run a specific zipper slice
+    # Run a specific dev slice
     python scripts/run_gdpval_eval.py --agent claude --slice S1
+
+    # Run an eval slice
+    python scripts/run_gdpval_eval.py --agent claude --slice E1
 
     # Full evaluation (all 220 tasks)
     python scripts/run_gdpval_eval.py --agent gemini --all
@@ -44,7 +47,7 @@ from src.eval.runner import GDPvalRunner
 
 
 def load_zipper_slice(slice_name: str) -> list[str]:
-    """Load task IDs for a specific zipper slice (S1-S6 or vault)."""
+    """Load task IDs for a specific zipper slice (S1-S8 or E1-E2)."""
     split_path = Path("data/processed/zipper_split.json")
     if not split_path.exists():
         print(f"Error: {split_path} not found. Run the zipper splitter first.")
@@ -52,17 +55,15 @@ def load_zipper_slice(slice_name: str) -> list[str]:
     with open(split_path) as f:
         splits = json.load(f)
 
-    # Handle "vault" as alias for test_vault
-    if slice_name.lower() == "vault":
-        return splits["test_vault"]
-
-    # Slices are nested under dev_slices
+    # Check dev_slices first, then eval_slices
     dev_slices = splits.get("dev_slices", {})
-    available = list(dev_slices.keys())
-    if slice_name not in dev_slices:
-        print(f"Error: slice '{slice_name}' not found. Available: {available + ['vault']}")
+    eval_slices = splits.get("eval_slices", {})
+    all_slices = {**dev_slices, **eval_slices}
+    available = list(all_slices.keys())
+    if slice_name not in all_slices:
+        print(f"Error: slice '{slice_name}' not found. Available: {available}")
         sys.exit(1)
-    return dev_slices[slice_name]
+    return all_slices[slice_name]
 
 
 def filter_samples_by_ids(samples: list[Sample], task_ids: list[str]) -> list[Sample]:
@@ -78,9 +79,9 @@ async def main() -> None:
     parser.add_argument("--model", type=str, default=None, help="Override the agent model")
     parser.add_argument("--n", type=int, default=3, help="Number of tasks to run (default: 3)")
     parser.add_argument("--all", action="store_true", help="Run all 220 tasks")
-    parser.add_argument("--slice", type=str, help="Run a specific zipper slice (S1-S6 or vault)")
-    parser.add_argument("--max-turns", type=int, default=10, help="Max agent turns per task (default: 10)")
-    parser.add_argument("--concurrency", type=int, default=1, help="Number of concurrent tasks (default: 1)")
+    parser.add_argument("--slice", type=str, help="Run a specific zipper slice (S1-S8 dev, E1-E2 eval)")
+    parser.add_argument("--max-turns", type=int, default=30, help="Max agent turns per task (default: 10)")
+    parser.add_argument("--concurrency", type=int, default=22, help="Number of concurrent tasks (default: 1)")
     parser.add_argument("--output", type=str, help="Output directory (default: results/<agent>_<timestamp>/)")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for sampling (default: 42)")
     parser.add_argument("--no-judge", action="store_true", help="Use keyword heuristic instead of Gemini judge (faster, less accurate)")
