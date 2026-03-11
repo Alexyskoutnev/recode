@@ -78,7 +78,7 @@ python scripts/run_gdpval_eval.py --slice S1
 python scripts/run_gdpval_eval.py --slice S2
 ```
 
-Available slices: `S1`, `S2`, `S3`, `S4`, `S5`, `S6`, `vault` (88 tasks, use once).
+Available slices: `S1`–`S8` (dev, 22 tasks each), `E1`–`E2` (eval, 22 tasks each — use once at the end).
 
 ## Full Evaluation
 
@@ -93,7 +93,7 @@ python scripts/run_gdpval_eval.py --all --output results/baseline_full.json
 |------|---------|-------------|
 | `--n N` | 3 | Number of tasks to sample |
 | `--all` | — | Run all 220 tasks |
-| `--slice NAME` | — | Run a specific zipper slice (S1-S6, vault) |
+| `--slice NAME` | — | Run a specific zipper slice (S1–S8 dev, E1–E2 eval) |
 | `--max-turns N` | 10 | Max Claude Code agent turns per task |
 | `--concurrency N` | 1 | Parallel task execution (use with caution) |
 | `--output PATH` | auto | Output JSON path |

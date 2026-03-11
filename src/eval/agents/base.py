@@ -71,7 +71,7 @@ class BaseAgent(ABC):
         self,
         cmd: list[str],
         cwd: Path,
-        timeout: int = 600,
+        timeout: int = 1800,
     ) -> tuple[str, str, int]:
         """Run a subprocess and return (stdout, stderr, returncode)."""
         logger.debug("[subprocess] %s", " ".join(cmd))

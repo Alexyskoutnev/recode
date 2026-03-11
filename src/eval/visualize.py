@@ -116,6 +116,99 @@ class RunResult:
         return by_sector
 
 
+def plot_baseline_trajectory(
+    trajectory_path: str | Path,
+    title: str = "Baseline Score Trajectory",
+    save_path: str | None = None,
+) -> Any:
+    """Plot per-agent scores across slices from a trajectory.json file.
+
+    Produces a line chart with one line per agent (claude, gemini, codex)
+    showing their score on each slice (S1–S8, E1, E2). A vertical dashed
+    line separates dev slices from eval slices.
+
+    Args:
+        trajectory_path: Path to trajectory.json from a baseline run.
+        title: Plot title.
+        save_path: If set, save figure to this path instead of showing.
+
+    Returns:
+        matplotlib Figure, or None if plotting deps are missing.
+    """
+    if not _HAS_PLOTTING:
+        logger.warning("matplotlib/numpy not installed — plotting disabled")
+        return None
+
+    path = Path(trajectory_path)
+    if path.is_dir():
+        path = path / "trajectory.json"
+    with open(path) as f:
+        trajectory = json.load(f)
+
+    agents = trajectory.get("agents", {})
+    if not agents:
+        logger.warning("No agent data in %s", path)
+        return None
+
+    slice_order = [f"S{i}" for i in range(1, 9)] + ["E1", "E2"]
+    agent_colors = {
+        "claude": COLORS["primary"],
+        "gemini": COLORS["warning"],
+        "codex": COLORS["secondary"],
+    }
+
+    fig, ax = plt.subplots(figsize=(12, 6))
+
+    for agent_name, agent_data in agents.items():
+        scores_dict = agent_data.get("scores", {})
+        x_vals = []
+        y_vals = []
+        for i, s in enumerate(slice_order):
+            if s in scores_dict:
+                x_vals.append(i)
+                y_vals.append(scores_dict[s]["avg_score"] * 100)
+
+        if not x_vals:
+            continue
+
+        color = agent_colors.get(agent_name, COLORS["neutral"])
+        ax.plot(x_vals, y_vals, "o-", color=color, linewidth=2.5,
+                markersize=8, markerfacecolor="white", markeredgewidth=2.5,
+                label=agent_name, zorder=3)
+
+        # Score labels
+        for xi, yi in zip(x_vals, y_vals):
+            ax.annotate(f"{yi:.1f}%", (xi, yi), textcoords="offset points",
+                        xytext=(0, 12), ha="center", fontsize=9,
+                        fontweight="bold", color=color)
+
+    # Vertical line between dev and eval slices
+    ax.axvline(x=7.5, color=COLORS["neutral"], linestyle="--", alpha=0.5)
+    ax.text(6, ax.get_ylim()[1] - 2, "dev", ha="center", fontsize=10,
+            color=COLORS["neutral"], fontstyle="italic")
+    ax.text(8.5, ax.get_ylim()[1] - 2, "eval", ha="center", fontsize=10,
+            color=COLORS["neutral"], fontstyle="italic")
+
+    ax.set_xticks(range(len(slice_order)))
+    ax.set_xticklabels(slice_order, fontsize=11)
+    ax.set_ylabel("GDPval Average Score (%)")
+    ax.set_title(title, fontweight="bold", pad=15)
+    ax.yaxis.set_major_formatter(mticker.FormatStrFormatter("%.0f%%"))
+    ax.legend(loc="lower right", fontsize=11)
+    ax.grid(axis="y", alpha=0.3)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+    fig.tight_layout()
+    if save_path:
+        Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(save_path)
+        logger.info("Saved trajectory plot to %s", save_path)
+    else:
+        plt.show()
+    return fig
+
+
 class ResultsViz:
     """Visualization toolkit for GDPval evaluation results.
 

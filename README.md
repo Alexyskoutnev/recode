@@ -89,6 +89,26 @@ Datasets are saved to `data/raw/` as parquet files.
 
 ## Running Evaluations
 
+### Baseline Run (All Agents x All Slices)
+
+```bash
+# Run all agents (claude, gemini, codex) across all 10 slices
+python scripts/run_baseline.py
+
+# Run specific agents
+python scripts/run_baseline.py --agents claude gemini
+
+# Dev slices only (skip E1, E2)
+python scripts/run_baseline.py --dev-only
+
+# Resume from a checkpoint after interruption
+python scripts/run_baseline.py --resume results/baseline_20260310_143022
+```
+
+Results go to `results/baseline_<timestamp>/`:
+- `trajectory.json` — scores per agent per slice
+- `<agent>/<slice>/traces.json` + `eval.json` — per-slice details
+
 ### Quick Test (1 task)
 
 ```bash
@@ -131,7 +151,7 @@ python scripts/run_gdpval_eval.py --agent claude --slice S1 --no-judge
 | `--model NAME` | auto | Override the agent's model |
 | `--n N` | 3 | Number of tasks to sample |
 | `--all` | — | Run all 220 tasks |
-| `--slice NAME` | — | Run a zipper slice (`S1`–`S6`, `vault`) |
+| `--slice NAME` | — | Run a zipper slice (`S1`–`S8` dev, `E1`–`E2` eval) |
 | `--max-turns N` | 10 | Max agent turns per task |
 | `--concurrency N` | 1 | Parallel task execution |
 | `--no-judge` | — | Use keyword heuristic instead of Gemini judge |
@@ -174,7 +194,7 @@ Results are saved to `results/<agent>_<timestamp>/` as two files:
 }
 ```
 
-Each task also gets an **isolated workspace** at `results/workspace_<agent>/<task_id>/` containing any files the agent produced (`.docx`, `.xlsx`, etc.). These are extracted and included in scoring.
+Each task also gets an **isolated workspace** at `results/<agent>_<timestamp>/workspace/<task_id>/` containing any files the agent produced (`.docx`, `.xlsx`, etc.). These are extracted and included in scoring. Workspaces are scoped per run so different evaluations don't interfere.
 
 ## Visualizing Results
 
@@ -239,11 +259,18 @@ Visualization is optional — if `matplotlib` is not installed, plotting methods
 
 ## How the RSI Loop Works
 
-1. **Zipper split** divides GDPval's 220 tasks into 6 non-overlapping dev slices (22 each) + 88 held-out test vault
-2. At iteration *t*, the **meta-improver** reads traces from slice *t−1*, identifies failures, designs and implements fixes
-3. A **frozen judge** (Gemini Pro, cross-model-family) scores the improved agent on the fresh slice *t*
-4. An **acceptance rule** (≥1.5pp delta, ≥12/22 wins, no critical regressions) decides keep or rollback
-5. After 6 iterations, the held-out test vault is evaluated **once** to confirm generalization
+```
+S1 → score → evolve harness → S2 → score → evolve → ... → S8 → score → E1, E2 (final)
+```
+
+1. **Zipper split** divides GDPval's 220 tasks into 10 deterministic slices of 22 tasks each (8 dev + 2 eval). The split is fully deterministic so all agents are tested on the exact same tasks.
+2. **Baseline (S1):** Run all agents (Claude, Gemini, Codex, custom) on S1. Record scores.
+3. **Evolve (S1→S2):** Meta-improver reads S1 traces, identifies failures, edits the custom harness.
+4. **Evaluate (S2):** Run evolved harness on S2 (unseen tasks). Record scores.
+5. **Repeat** through S3–S8. A **frozen judge** (Gemini 3.1 Pro, cross-model-family) scores every iteration. An **acceptance rule** (≥1.5pp delta, ≥12/22 wins, no critical regressions) decides keep or rollback.
+6. **Final eval (E1+E2):** Run the final evolved harness on both eval slices **once** to confirm generalization. This is the paper number.
+
+Score trajectory across S1→S8 shows whether the harness improves over time. Baseline agents run unchanged on all slices for comparison.
 
 ## Requirements
 

@@ -19,8 +19,10 @@ class ClaudeCodeAgent(BaseAgent):
 
     async def run(self, prompt: str, cwd: Path) -> AgentResult:
         import os
-        # Allow launching Claude Code from within another Claude Code session
-        os.environ.pop("CLAUDECODE", None)
+        # Strip all Claude Code env vars so the subprocess doesn't think it's nested
+        for key in list(os.environ):
+            if key.startswith("CLAUDE"):
+                os.environ.pop(key, None)
 
         bin_path = self._find_binary("@anthropic-ai/claude-code", "claude")
 

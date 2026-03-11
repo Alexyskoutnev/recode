@@ -137,8 +137,8 @@ async def main() -> None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_dir = Path(f"results/{args.agent}_{timestamp}")
 
-    # Create workspace
-    work_dir = Path(f"results/workspace_{args.agent}")
+    # Create workspace inside the output directory so runs don't interfere
+    work_dir = output_dir / "workspace"
     work_dir.mkdir(parents=True, exist_ok=True)
 
     # Run evaluation — Gemini judge is default, --no-judge for keyword heuristic

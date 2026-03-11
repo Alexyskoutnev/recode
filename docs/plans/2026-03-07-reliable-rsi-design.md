@@ -14,7 +14,7 @@ Build a **Reliable RSI system** that self-improves a coding agent harness across
 2. **Truthfulness** (hallucination benchmarks — stop fabricating, say "I don't know")
 3. **Instruction following** (stop being verbose/descriptive, follow constraints precisely)
 
-The system should demonstrably **beat Claude Code Opus** on GDPval after 6 batches of self-improvement, while also improving on safety/hallucination metrics. Uses SkyDiscover's evolutionary harness as the search backbone.
+The system should demonstrably **beat Claude Code Opus** on GDPval after 8 batches of self-improvement, while also improving on safety/hallucination metrics. Uses SkyDiscover's evolutionary harness as the search backbone.
 
 ---
 
@@ -62,24 +62,45 @@ The system should demonstrably **beat Claude Code Opus** on GDPval after 6 batch
 
 ## 4. Data Splits (GDPval)
 
-Directly from ReCodeAgent's zipper schedule:
+220 tasks split into 10 deterministic slices of 22 tasks each via round-robin over sorted occupations:
 
 ```
 220 GDPval Tasks (44 occupations x 5 tasks)
 |
-+-- 132 Dev Pool (3 per occupation)
++-- 176 Dev Pool (8 slices, 22 tasks each)
 |   |
-|   +-- S1: Odd-a  (22 tasks) -- Iter 1
-|   +-- S2: Even-a (22 tasks) -- Iter 2
-|   +-- S3: Odd-b  (22 tasks) -- Iter 3
-|   +-- S4: Even-b (22 tasks) -- Iter 4
-|   +-- S5: Odd-c  (22 tasks) -- Iter 5
-|   +-- S6: Even-c (22 tasks) -- Iter 6
+|   +-- S1 (22 tasks) -- Iter 1: Baseline run
+|   +-- S2 (22 tasks) -- Iter 2: Evolve harness from S1 traces
+|   +-- S3 (22 tasks) -- Iter 3: Evolve from S2 traces
+|   +-- S4 (22 tasks) -- Iter 4: Evolve from S3 traces
+|   +-- S5 (22 tasks) -- Iter 5: Evolve from S4 traces
+|   +-- S6 (22 tasks) -- Iter 6: Evolve from S5 traces
+|   +-- S7 (22 tasks) -- Iter 7: Evolve from S6 traces
+|   +-- S8 (22 tasks) -- Iter 8: Evolve from S7 traces
 |
-+-- 88 Test Vault (2 per occupation) -- Used ONCE at the end
++-- 44 Eval Pool (2 slices, 22 tasks each) -- Used ONCE at the end
+    |
+    +-- E1 (22 tasks) -- Final eval slice 1
+    +-- E2 (22 tasks) -- Final eval slice 2
 ```
 
-**Rule:** At iteration t, meta-improver reads traces from S(t-1), evaluates on fresh S(t). No task reuse.
+### RSI Loop
+
+```
+S1 → score → evolve harness → S2 → score → evolve → ... → S8 → score → E1, E2 (final)
+```
+
+1. **Baseline (S1):** Run all agents (Claude, Gemini, Codex, custom) on S1. Record scores.
+2. **Evolve (S1→S2):** Meta-improver reads S1 traces, identifies failures, edits the custom harness.
+3. **Evaluate (S2):** Run evolved harness on S2 (unseen tasks). Record scores.
+4. **Repeat** through S3–S8, evolving after each slice.
+5. **Final eval (E1, E2):** Run the final evolved harness on both eval slices. This is the paper number.
+
+**Rules:**
+- At iteration t, meta-improver reads traces from S(t-1), evaluates on fresh S(t). No task reuse.
+- Baseline agents (Claude, Gemini, Codex) run unchanged on all slices for comparison.
+- Score trajectory across S1→S8 shows whether the harness improves over time.
+- E1+E2 confirm that improvements generalize to unseen tasks.
 
 ---
 
@@ -205,9 +226,9 @@ src/eval/ (TODO)                 # ← NOT YET IMPLEMENTED
 - [x] Implement paper-quality visualization (`src/eval/visualize.py`) — trajectory, sector, failure taxonomy, model comparison, dashboard
 - [x] Run Claude Code n=1 sanity check on GDPval — **94% on keyword heuristic** (51/52 criteria)
 - [ ] Enable Gemini API billing and run Gemini judge baseline
-- [ ] Run Claude Code Opus baseline on all 6 dev slices (22 tasks each)
-- [ ] Run Gemini CLI baseline on all 6 dev slices
-- [ ] Run Codex baseline on all 6 dev slices
+- [ ] Run Claude Code Opus baseline on all 8 dev slices (S1–S8, 22 tasks each)
+- [ ] Run Gemini CLI baseline on all 8 dev slices
+- [ ] Run Codex baseline on all 8 dev slices
 - [ ] Run baselines on hallucination/IFEval/safety benchmarks
 - [ ] Record baseline scores per slice, per benchmark, per agent
 - [ ] Verify zipper schedule produces disjoint slices
@@ -228,7 +249,8 @@ src/eval/ (TODO)                 # ← NOT YET IMPLEMENTED
 - [ ] Implement self mode (agent reads own traces, edits own code)
 - [ ] Integrate SkyDiscover's evolutionary search (AdaEvolve) as alternative search strategy
 - [ ] Implement rollback safety
-- [ ] Run 6 iterations on dev slices
+- [ ] Run 8 iterations on dev slices (S1→S8), evolving after each
+- [ ] Plot score trajectory across S1→S8
 - [ ] **Milestone:** Full RSI loop runs end-to-end
 
 ### Phase 4: SkyDiscover Comparison (Week 7)
@@ -243,7 +265,7 @@ src/eval/ (TODO)                 # ← NOT YET IMPLEMENTED
 - [ ] Compare on hallucination benchmarks
 - [ ] Compare on IFEval
 - [ ] Compare on safety benchmarks
-- [ ] Run 88-task held-out test vault evaluation (ONE TIME ONLY)
+- [ ] Run 44-task held-out eval (E1 + E2) evaluation (ONE TIME ONLY)
 - [ ] **Milestone:** Improved agent > Claude Code on GDPval + safer + less hallucination
 
 ### Phase 6: Paper & Analysis (Week 9-10)
