@@ -394,25 +394,32 @@ async def main() -> None:
 
     log_plan(args.agents, target_slices, args, run_dir)
 
-    # ── Main loop: sequential — slice by slice, agent by agent ──
-    # Sequential execution ensures consistency with the RSI loop
-    # where each slice's traces inform the next iteration's harness.
+    # ── Main loop: slices sequential, agents parallel within each slice ──
+    # All agents run concurrently on the same slice, then we move to the next.
     for slice_name in target_slices:
         slice_samples = slices[slice_name]
         slice_type = "eval" if slice_name.startswith("E") else "dev"
 
+        # Figure out which agents still need to run this slice
+        agents_to_run = []
         for agent_name in args.agents:
             if is_slice_done(trajectory, agent_name, slice_name):
                 prev = trajectory["agents"][agent_name]["scores"][slice_name]["avg_score"]
                 logger.info("[%s | %s] Already done (%.1f%%), skipping",
                             agent_name, slice_name, prev * 100)
-                continue
+            else:
+                agents_to_run.append(agent_name)
 
+        if not agents_to_run:
+            continue
+
+        for a in agents_to_run:
             logger.info(
                 "━━━ %s | %s (%s) — %d tasks ━━━",
-                agent_name, slice_name, slice_type, len(slice_samples),
+                a, slice_name, slice_type, len(slice_samples),
             )
 
+        async def _run_one_agent(agent_name: str) -> tuple[str, dict[str, Any]]:
             summary = await run_agent_on_slice(
                 agent_name=agent_name,
                 slice_name=slice_name,
@@ -423,10 +430,21 @@ async def main() -> None:
                 judge_model=args.judge_model,
                 use_judge=not args.no_judge,
             )
+            return agent_name, summary
 
+        results = await asyncio.gather(
+            *[_run_one_agent(a) for a in agents_to_run],
+            return_exceptions=True,
+        )
+
+        for res in results:
+            if isinstance(res, BaseException):
+                logger.error("[slice %s] Agent failed: %s", slice_name, res)
+                continue
+            agent_name, summary = res  # type: ignore[misc]
             record_slice_result(trajectory, agent_name, slice_name, summary)
-            save_checkpoint(run_dir, trajectory)
 
+        save_checkpoint(run_dir, trajectory)
         log_trajectory_table(trajectory)
 
     # ── Final output ──

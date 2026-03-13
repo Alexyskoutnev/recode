@@ -46,10 +46,14 @@ class BatchResult:
 
     @property
     def avg_score(self) -> float:
-        scored = [t.eval_result for t in self.traces if t.eval_result and t.eval_result.max_score > 0]
-        if not scored:
+        if not self.traces:
             return 0.0
-        return sum(r.normalized_score for r in scored) / len(scored)
+        total = 0.0
+        for t in self.traces:
+            if t.eval_result and t.eval_result.max_score > 0:
+                total += t.eval_result.normalized_score
+            # Tasks with no eval result or max_score=0 contribute 0.0
+        return total / len(self.traces)
 
     @property
     def num_completed(self) -> int:

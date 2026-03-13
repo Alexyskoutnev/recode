@@ -92,10 +92,13 @@ Your working directory is: {cwd}
 - When the task mentions specific numbers, names, dates, or criteria — include them EXACTLY
 
 ## READING REFERENCE FILES
-- .xlsx/.xls files: use bash with Python + openpyxl/xlrd to read and print contents
-- .docx files: use bash with Python + python-docx to extract text
-- .pdf files: use bash with Python + pymupdf to extract text
-- .csv/.txt/.json files: use read_file directly
+- read_file handles ALL common formats natively — just call read_file with the path:
+  - .pdf files: automatically extracts text from all pages
+  - .xlsx/.xlsm files: automatically reads all sheets with cell data
+  - .docx files: automatically extracts paragraphs and tables
+  - .pptx files: automatically extracts slide text
+  - .csv/.txt/.json files: reads text with line numbers
+- NO need to write Python scripts to read reference files — read_file does it directly
 - Binary files (.wav, .mp3, .zip, etc.): note their existence but focus on what you can process
 
 ## TOOL SELECTION
@@ -139,9 +142,9 @@ TOOL_DECLARATIONS = Tool(function_declarations=[
     FunctionDeclaration(
         name="read_file",
         description=(
-            "Read the contents of a file. Returns text content with line numbers. "
-            "For large files, use offset and limit to read specific sections. "
-            "Binary files return a size summary."
+            "Read the contents of a file. Supports text files (with line numbers), "
+            "PDFs (extracts text from all pages), and Office documents (.docx, .xlsx, .pptx). "
+            "For large files, use offset and limit to read specific line ranges."
         ),
         parameters={
             "type": "object",
@@ -312,8 +315,73 @@ def _run_bash(command: str, cwd: Path) -> str:
         return f"Error executing command: {e}"
 
 
+def _read_pdf(resolved: Path, display_path: str) -> str:
+    """Extract text from a PDF file using pymupdf."""
+    try:
+        import pymupdf
+        doc = pymupdf.open(str(resolved))
+        parts = []
+        for i, page in enumerate(doc):
+            text = page.get_text().strip()
+            if text:
+                parts.append(f"--- Page {i + 1} ---\n{text}")
+        doc.close()
+        result = "\n\n".join(parts) if parts else "(PDF contains no extractable text)"
+        if len(result) > MAX_FILE_READ:
+            result = result[:MAX_FILE_READ] + "\n... (truncated)"
+        return f"File: {display_path} (PDF, {len(parts)} pages)\n{result}"
+    except Exception as e:
+        return f"Error reading PDF '{display_path}': {e}"
+
+
+def _read_office_file(resolved: Path, display_path: str) -> str:
+    """Extract text from Office documents (.docx, .xlsx, .pptx)."""
+    suffix = resolved.suffix.lower()
+    try:
+        if suffix == ".docx":
+            from docx import Document as DocxDocument
+            doc = DocxDocument(str(resolved))
+            parts = [p.text for p in doc.paragraphs]
+            for table in doc.tables:
+                for row in table.rows:
+                    parts.append(" | ".join(cell.text for cell in row.cells))
+            result = "\n".join(parts)
+        elif suffix in (".xlsx", ".xlsm"):
+            import openpyxl
+            wb = openpyxl.load_workbook(str(resolved), data_only=True)
+            parts = []
+            for sheet_name in wb.sheetnames:
+                ws = wb[sheet_name]
+                parts.append(f"[Sheet: {sheet_name}]")
+                for row in ws.iter_rows(values_only=True):
+                    row_str = " | ".join(str(c) if c is not None else "" for c in row)
+                    parts.append(row_str)
+            result = "\n".join(parts)
+        elif suffix == ".pptx":
+            from pptx import Presentation
+            prs = Presentation(str(resolved))
+            parts = []
+            for i, slide in enumerate(prs.slides):
+                parts.append(f"[Slide {i + 1}]")
+                for shape in slide.shapes:
+                    if shape.has_text_frame:
+                        parts.append(shape.text_frame.text)
+            result = "\n".join(parts)
+        else:
+            return f"Unsupported file type: {suffix}"
+        if len(result) > MAX_FILE_READ:
+            result = result[:MAX_FILE_READ] + "\n... (truncated)"
+        return f"File: {display_path} ({suffix})\n{result}"
+    except Exception as e:
+        return f"Error reading '{display_path}': {e}"
+
+
 def _read_file(path: str, cwd: Path, offset: int = 0, limit: int = 0) -> str:
-    """Read a file from the workspace with optional offset/limit."""
+    """Read a file from the workspace with optional offset/limit.
+
+    Natively handles PDFs, Office documents (.docx, .xlsx, .pptx),
+    and text files with line numbers.
+    """
     resolved, err = _check_path(path, cwd)
     if err:
         return err
@@ -322,7 +390,16 @@ def _read_file(path: str, cwd: Path, offset: int = 0, limit: int = 0) -> str:
         return f"Error: file '{path}' not found.\nAvailable files:\n{available}"
     if resolved.is_dir():
         return f"Error: '{path}' is a directory. Use list_dir instead."
-    # Check if binary
+
+    # Handle PDFs natively
+    if resolved.suffix.lower() == ".pdf":
+        return _read_pdf(resolved, path)
+
+    # Handle Office documents natively
+    if resolved.suffix.lower() in (".docx", ".xlsx", ".xlsm", ".pptx"):
+        return _read_office_file(resolved, path)
+
+    # Text files
     try:
         content = resolved.read_text(encoding="utf-8", errors="strict")
     except (UnicodeDecodeError, ValueError):

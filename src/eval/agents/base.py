@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import shutil
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -80,11 +81,13 @@ class BaseAgent(ABC):
     ) -> tuple[str, str, int]:
         """Run a subprocess and return (stdout, stderr, returncode)."""
         logger.debug("[subprocess] %s", " ".join(cmd))
+        env = {**os.environ, "MPLBACKEND": "Agg"}
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=str(cwd),
+            env=env,
         )
         try:
             stdout, stderr = await asyncio.wait_for(
