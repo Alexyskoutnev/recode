@@ -926,6 +926,191 @@
               "duration_s": 350.8894584999998
             }
           ]
+        },
+        "S8": {
+          "avg_score": 0.3999363788189211,
+          "num_tasks": 22,
+          "num_completed": 15,
+          "num_errors": 7,
+          "total_duration_s": 1809.4862325840004,
+          "tasks": [
+            {
+              "task_id": "a328feea-47db-4856-b4be-2bdc63dd88fb",
+              "score": 0.96,
+              "raw_score": 24.0,
+              "max_score": 25.0,
+              "error": null,
+              "duration_s": 136.7942386249997
+            },
+            {
+              "task_id": "1b1ade2d-f9f6-4a04-baa5-aa15012b53be",
+              "score": 0.0,
+              "raw_score": 0.0,
+              "max_score": 0.0,
+              "error": "Exit code -1: Process timed out after 1800s",
+              "duration_s": 1809.4262712500004
+            },
+            {
+              "task_id": "4c18ebae-dfaa-4b76-b10c-61fcdf26734c",
+              "score": 0.0,
+              "raw_score": 0.0,
+              "max_score": 0.0,
+              "error": "Exit code -1: Process timed out after 1800s",
+              "duration_s": 1809.4274019160002
+            },
+            {
+              "task_id": "a10ec48c-168e-476c-8fe3-23b2a5f616ac",
+              "score": 0.42857142857142855,
+              "raw_score": 15.0,
+              "max_score": 35.0,
+              "error": null,
+              "duration_s": 650.8462120000004
+            },
+            {
+              "task_id": "87da214f-fd92-4c58-9854-f4d0d10adce0",
+              "score": 0.0,
+              "raw_score": 0.0,
+              "max_score": 0.0,
+              "error": "Exit code -1: Process timed out after 1800s",
+              "duration_s": 1809.4140160830011
+            },
+            {
+              "task_id": "a941b6d8-4289-4500-b45a-f8e4fc94a724",
+              "score": 0.0,
+              "raw_score": 0.0,
+              "max_score": 0.0,
+              "error": "Exit code -1: Process timed out after 1800s",
+              "duration_s": 1808.329551290999
+            },
+            {
+              "task_id": "9e8607e7-a38a-491f-ace1-e5ea7dc477cb",
+              "score": 0.05,
+              "raw_score": 1.0,
+              "max_score": 20.0,
+              "error": null,
+              "duration_s": 390.50649054099995
+            },
+            {
+              "task_id": "40a8c4b1-b169-4f92-a38b-7f79685037ec",
+              "score": 0.0,
+              "raw_score": 0.0,
+              "max_score": 0.0,
+              "error": "Exit code -1: Process timed out after 1800s",
+              "duration_s": 1808.295494459
+            },
+            {
+              "task_id": "9e39df84-ac57-4c9b-a2e3-12b8abf2c797",
+              "score": 0.4105263157894737,
+              "raw_score": 39.0,
+              "max_score": 95.0,
+              "error": null,
+              "duration_s": 233.09625866700117
+            },
+            {
+              "task_id": "4d61a19a-8438-4d4c-9fc2-cf167e36dcd6",
+              "score": 0.0,
+              "raw_score": 0.0,
+              "max_score": 0.0,
+              "error": "Exit code -1: Process timed out after 1800s",
+              "duration_s": 1808.2611858330001
+            },
+            {
+              "task_id": "a97369c7-e5cf-40ca-99e8-d06f81c57d53",
+              "score": 0.7333333333333333,
+              "raw_score": 88.0,
+              "max_score": 120.0,
+              "error": null,
+              "duration_s": 191.05489925000074
+            },
+            {
+              "task_id": "6d2c8e55-fe20-45c6-bdaf-93e676868503",
+              "score": 0.8607594936708861,
+              "raw_score": 68.0,
+              "max_score": 79.0,
+              "error": null,
+              "duration_s": 723.895120792
+            },
+            {
+              "task_id": "60221cd0-686e-4a08-985e-d9bb2fa18501",
+              "score": 0.7142857142857143,
+              "raw_score": 20.0,
+              "max_score": 28.0,
+              "error": null,
+              "duration_s": 103.87737949999973
+            },
+            {
+              "task_id": "b5d2e6f1-62a2-433a-bcdd-95b260cdd860",
+              "score": 0.36363636363636365,
+              "raw_score": 24.0,
+              "max_score": 66.0,
+              "error": null,
+              "duration_s": 313.9030026250002
+            },
+            {
+              "task_id": "91060ff0-3eb5-4ddf-9edb-f6758b95499e",
+              "score": 0.78,
+              "raw_score": 39.0,
+              "max_score": 50.0,
+              "error": null,
+              "duration_s": 345.87746408300154
+            },
+            {
+              "task_id": "b1a79ce1-86b0-41fb-97dc-9206dfd7b044",
+              "score": 0.3103448275862069,
+              "raw_score": 18.0,
+              "max_score": 58.0,
+              "error": null,
+              "duration_s": 365.73082979100036
+            },
+            {
+              "task_id": "55ddb773-23a4-454c-8704-d432fe1b99d9",
+              "score": 1.0,
+              "raw_score": 58.0,
+              "max_score": 58.0,
+              "error": null,
+              "duration_s": 142.36616549999962
+            },
+            {
+              "task_id": "90f37ff3-e4ed-4a0b-94bb-bed0f7def1ef",
+              "score": 0.8,
+              "raw_score": 48.0,
+              "max_score": 60.0,
+              "error": null,
+              "duration_s": 361.55995641699883
+            },
+            {
+              "task_id": "7151c60a-d4cb-4fc4-8169-3d4cb446e6b9",
+              "score": 0.0,
+              "raw_score": 0.0,
+              "max_score": 0.0,
+              "error": "Exit code -1: Process timed out after 1800s",
+              "duration_s": 1808.0116152500013
+            },
+            {
+              "task_id": "7ed932dd-244f-4d61-bf02-1bc3bab1af14",
+              "score": 0.8571428571428571,
+              "raw_score": 72.0,
+              "max_score": 84.0,
+              "error": null,
+              "duration_s": 232.1214279579999
+            },
+            {
+              "task_id": "4de6a529-4f61-41a1-b2dc-64951ba03457",
+              "score": 0.53,
+              "raw_score": 53.0,
+              "max_score": 100.0,
+              "error": null,
+              "duration_s": 168.2823814580006
+            },
+            {
+              "task_id": "4122f866-01fa-400b-904d-fa171cdab7c7",
+              "score": 0.0,
+              "raw_score": 0.0,
+              "max_score": 201.0,
+              "error": null,
+              "duration_s": 192.16715416700026
+            }
+          ]
         }
       }
     },
@@ -1853,6 +2038,191 @@
               "max_score": 0.0,
               "error": null,
               "duration_s": 55.520427666000614
+            }
+          ]
+        },
+        "S8": {
+          "avg_score": 0.055667851297218525,
+          "num_tasks": 22,
+          "num_completed": 22,
+          "num_errors": 0,
+          "total_duration_s": 923.5858761660002,
+          "tasks": [
+            {
+              "task_id": "a328feea-47db-4856-b4be-2bdc63dd88fb",
+              "score": 0.7083333333333334,
+              "raw_score": 17.0,
+              "max_score": 24.0,
+              "error": null,
+              "duration_s": 101.14211645799878
+            },
+            {
+              "task_id": "1b1ade2d-f9f6-4a04-baa5-aa15012b53be",
+              "score": 0.0,
+              "raw_score": 0.0,
+              "max_score": 0.0,
+              "error": null,
+              "duration_s": 38.868266624998796
+            },
+            {
+              "task_id": "4c18ebae-dfaa-4b76-b10c-61fcdf26734c",
+              "score": 0.08064516129032258,
+              "raw_score": 5.0,
+              "max_score": 62.0,
+              "error": null,
+              "duration_s": 75.22337654200055
+            },
+            {
+              "task_id": "a10ec48c-168e-476c-8fe3-23b2a5f616ac",
+              "score": 0.0,
+              "raw_score": 0.0,
+              "max_score": 0.0,
+              "error": null,
+              "duration_s": 58.79540999999881
+            },
+            {
+              "task_id": "87da214f-fd92-4c58-9854-f4d0d10adce0",
+              "score": 0.0,
+              "raw_score": 0.0,
+              "max_score": 59.0,
+              "error": null,
+              "duration_s": 93.56430012500095
+            },
+            {
+              "task_id": "a941b6d8-4289-4500-b45a-f8e4fc94a724",
+              "score": 0.0,
+              "raw_score": 0.0,
+              "max_score": 0.0,
+              "error": null,
+              "duration_s": 37.2231341250008
+            },
+            {
+              "task_id": "9e8607e7-a38a-491f-ace1-e5ea7dc477cb",
+              "score": 0.0,
+              "raw_score": 0.0,
+              "max_score": 0.0,
+              "error": null,
+              "duration_s": 42.468598125000426
+            },
+            {
+              "task_id": "40a8c4b1-b169-4f92-a38b-7f79685037ec",
+              "score": 0.04504504504504504,
+              "raw_score": 5.0,
+              "max_score": 111.0,
+              "error": null,
+              "duration_s": 489.77302529200097
+            },
+            {
+              "task_id": "9e39df84-ac57-4c9b-a2e3-12b8abf2c797",
+              "score": 0.044444444444444446,
+              "raw_score": 4.0,
+              "max_score": 90.0,
+              "error": null,
+              "duration_s": 119.85312891699868
+            },
+            {
+              "task_id": "4d61a19a-8438-4d4c-9fc2-cf167e36dcd6",
+              "score": 0.0,
+              "raw_score": 0.0,
+              "max_score": 0.0,
+              "error": null,
+              "duration_s": 88.18683604099897
+            },
+            {
+              "task_id": "a97369c7-e5cf-40ca-99e8-d06f81c57d53",
+              "score": 0.0,
+              "raw_score": 0.0,
+              "max_score": 0.0,
+              "error": null,
+              "duration_s": 58.133075499999904
+            },
+            {
+              "task_id": "6d2c8e55-fe20-45c6-bdaf-93e676868503",
+              "score": 0.0,
+              "raw_score": 0.0,
+              "max_score": 82.0,
+              "error": null,
+              "duration_s": 79.8179426250008
+            },
+            {
+              "task_id": "60221cd0-686e-4a08-985e-d9bb2fa18501",
+              "score": 0.0,
+              "raw_score": 0.0,
+              "max_score": 0.0,
+              "error": null,
+              "duration_s": 57.18895387500015
+            },
+            {
+              "task_id": "b5d2e6f1-62a2-433a-bcdd-95b260cdd860",
+              "score": 0.03333333333333333,
+              "raw_score": 2.0,
+              "max_score": 60.0,
+              "error": null,
+              "duration_s": 268.44474166599866
+            },
+            {
+              "task_id": "91060ff0-3eb5-4ddf-9edb-f6758b95499e",
+              "score": 0.0,
+              "raw_score": 0.0,
+              "max_score": 0.0,
+              "error": null,
+              "duration_s": 80.96878891699998
+            },
+            {
+              "task_id": "b1a79ce1-86b0-41fb-97dc-9206dfd7b044",
+              "score": 0.0,
+              "raw_score": 0.0,
+              "max_score": 56.0,
+              "error": null,
+              "duration_s": 65.4801195
+            },
+            {
+              "task_id": "55ddb773-23a4-454c-8704-d432fe1b99d9",
+              "score": 0.0,
+              "raw_score": 0.0,
+              "max_score": 0.0,
+              "error": null,
+              "duration_s": 40.12898941700041
+            },
+            {
+              "task_id": "90f37ff3-e4ed-4a0b-94bb-bed0f7def1ef",
+              "score": 0.18333333333333332,
+              "raw_score": 11.0,
+              "max_score": 60.0,
+              "error": null,
+              "duration_s": 920.1088486669996
+            },
+            {
+              "task_id": "7151c60a-d4cb-4fc4-8169-3d4cb446e6b9",
+              "score": 0.0,
+              "raw_score": 0.0,
+              "max_score": 40.0,
+              "error": null,
+              "duration_s": 67.4635322080012
+            },
+            {
+              "task_id": "7ed932dd-244f-4d61-bf02-1bc3bab1af14",
+              "score": 0.10975609756097561,
+              "raw_score": 9.0,
+              "max_score": 82.0,
+              "error": null,
+              "duration_s": 83.69898208300037
+            },
+            {
+              "task_id": "4de6a529-4f61-41a1-b2dc-64951ba03457",
+              "score": 0.019801980198019802,
+              "raw_score": 2.0,
+              "max_score": 101.0,
+              "error": null,
+              "duration_s": 160.8270362080002
+            },
+            {
+              "task_id": "4122f866-01fa-400b-904d-fa171cdab7c7",
+              "score": 0.0,
+              "raw_score": 0.0,
+              "max_score": 0.0,
+              "error": null,
+              "duration_s": 42.18264799999997
             }
           ]
         }
@@ -2784,6 +3154,191 @@
               "duration_s": 109.59852066699932
             }
           ]
+        },
+        "S8": {
+          "avg_score": 0.5844328904165567,
+          "num_tasks": 22,
+          "num_completed": 21,
+          "num_errors": 1,
+          "total_duration_s": 2117.1851164170002,
+          "tasks": [
+            {
+              "task_id": "a328feea-47db-4856-b4be-2bdc63dd88fb",
+              "score": 0.9166666666666666,
+              "raw_score": 22.0,
+              "max_score": 24.0,
+              "error": null,
+              "duration_s": 59.826644875000056
+            },
+            {
+              "task_id": "1b1ade2d-f9f6-4a04-baa5-aa15012b53be",
+              "score": 0.6923076923076923,
+              "raw_score": 45.0,
+              "max_score": 65.0,
+              "error": null,
+              "duration_s": 122.81076829099948
+            },
+            {
+              "task_id": "4c18ebae-dfaa-4b76-b10c-61fcdf26734c",
+              "score": 0.7741935483870968,
+              "raw_score": 48.0,
+              "max_score": 62.0,
+              "error": null,
+              "duration_s": 366.50446829199973
+            },
+            {
+              "task_id": "a10ec48c-168e-476c-8fe3-23b2a5f616ac",
+              "score": 0.4857142857142857,
+              "raw_score": 17.0,
+              "max_score": 35.0,
+              "error": null,
+              "duration_s": 518.1606323750002
+            },
+            {
+              "task_id": "87da214f-fd92-4c58-9854-f4d0d10adce0",
+              "score": 0.5147058823529411,
+              "raw_score": 35.0,
+              "max_score": 68.0,
+              "error": null,
+              "duration_s": 199.82859754200035
+            },
+            {
+              "task_id": "a941b6d8-4289-4500-b45a-f8e4fc94a724",
+              "score": 0.0,
+              "raw_score": 0.0,
+              "max_score": 0.0,
+              "error": "Exit code -1: Process timed out after 1800s",
+              "duration_s": 2111.117691874999
+            },
+            {
+              "task_id": "9e8607e7-a38a-491f-ace1-e5ea7dc477cb",
+              "score": 0.6521739130434783,
+              "raw_score": 15.0,
+              "max_score": 23.0,
+              "error": null,
+              "duration_s": 243.69601225000042
+            },
+            {
+              "task_id": "40a8c4b1-b169-4f92-a38b-7f79685037ec",
+              "score": 0.68,
+              "raw_score": 68.0,
+              "max_score": 100.0,
+              "error": null,
+              "duration_s": 1013.8782117500014
+            },
+            {
+              "task_id": "9e39df84-ac57-4c9b-a2e3-12b8abf2c797",
+              "score": 0.43820224719101125,
+              "raw_score": 39.0,
+              "max_score": 89.0,
+              "error": null,
+              "duration_s": 350.0145311670003
+            },
+            {
+              "task_id": "4d61a19a-8438-4d4c-9fc2-cf167e36dcd6",
+              "score": 0.6176470588235294,
+              "raw_score": 42.0,
+              "max_score": 68.0,
+              "error": null,
+              "duration_s": 142.72300512500078
+            },
+            {
+              "task_id": "a97369c7-e5cf-40ca-99e8-d06f81c57d53",
+              "score": 0.75,
+              "raw_score": 90.0,
+              "max_score": 120.0,
+              "error": null,
+              "duration_s": 293.0457798330008
+            },
+            {
+              "task_id": "6d2c8e55-fe20-45c6-bdaf-93e676868503",
+              "score": 0.8170731707317073,
+              "raw_score": 67.0,
+              "max_score": 82.0,
+              "error": null,
+              "duration_s": 638.0831445409985
+            },
+            {
+              "task_id": "60221cd0-686e-4a08-985e-d9bb2fa18501",
+              "score": 1.0,
+              "raw_score": 30.0,
+              "max_score": 30.0,
+              "error": null,
+              "duration_s": 128.74846033299946
+            },
+            {
+              "task_id": "b5d2e6f1-62a2-433a-bcdd-95b260cdd860",
+              "score": 0.7833333333333333,
+              "raw_score": 47.0,
+              "max_score": 60.0,
+              "error": null,
+              "duration_s": 96.70316962499965
+            },
+            {
+              "task_id": "91060ff0-3eb5-4ddf-9edb-f6758b95499e",
+              "score": 0.7692307692307693,
+              "raw_score": 40.0,
+              "max_score": 52.0,
+              "error": null,
+              "duration_s": 366.64246054199975
+            },
+            {
+              "task_id": "b1a79ce1-86b0-41fb-97dc-9206dfd7b044",
+              "score": 0.08771929824561403,
+              "raw_score": 5.0,
+              "max_score": 57.0,
+              "error": null,
+              "duration_s": 98.37041558400051
+            },
+            {
+              "task_id": "55ddb773-23a4-454c-8704-d432fe1b99d9",
+              "score": 0.34545454545454546,
+              "raw_score": 19.0,
+              "max_score": 55.0,
+              "error": null,
+              "duration_s": 149.00982899999872
+            },
+            {
+              "task_id": "90f37ff3-e4ed-4a0b-94bb-bed0f7def1ef",
+              "score": 0.6896551724137931,
+              "raw_score": 40.0,
+              "max_score": 58.0,
+              "error": null,
+              "duration_s": 256.6508217499995
+            },
+            {
+              "task_id": "7151c60a-d4cb-4fc4-8169-3d4cb446e6b9",
+              "score": 0.775,
+              "raw_score": 31.0,
+              "max_score": 40.0,
+              "error": null,
+              "duration_s": 151.14015112500056
+            },
+            {
+              "task_id": "7ed932dd-244f-4d61-bf02-1bc3bab1af14",
+              "score": 0.49411764705882355,
+              "raw_score": 42.0,
+              "max_score": 85.0,
+              "error": null,
+              "duration_s": 221.58650350000062
+            },
+            {
+              "task_id": "4de6a529-4f61-41a1-b2dc-64951ba03457",
+              "score": 0.44,
+              "raw_score": 44.0,
+              "max_score": 100.0,
+              "error": null,
+              "duration_s": 159.41738070799875
+            },
+            {
+              "task_id": "4122f866-01fa-400b-904d-fa171cdab7c7",
+              "score": 0.13432835820895522,
+              "raw_score": 27.0,
+              "max_score": 201.0,
+              "error": null,
+              "duration_s": 199.8138492500002
+            }
+          ]
         }
       }
     }
@@ -2794,21 +3349,24 @@
       "S4",
       "S5",
       "S6",
-      "S7"
+      "S7",
+      "S8"
     ],
     "gemini": [
       "S3",
       "S4",
       "S5",
       "S6",
-      "S7"
+      "S7",
+      "S8"
     ],
     "codex": [
       "S3",
       "S4",
       "S5",
       "S6",
-      "S7"
+      "S7",
+      "S8"
     ]
   }
 }
