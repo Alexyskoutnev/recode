@@ -19,6 +19,7 @@ from __future__ import annotations
 
 # ── Section 1: IMPORTS ──────────────────────────────────────────────────────
 
+import asyncio
 import fnmatch
 import logging
 import os
@@ -577,9 +578,40 @@ class CustomAgent(BaseAgent):
         return "custom"
 
     async def run(self, prompt: str, cwd: Path) -> AgentResult:
+        """Run the agent. Never raises — all errors become partial results.
+
+        Runs the synchronous Gemini API loop in a thread via asyncio.to_thread()
+        so multiple tasks can execute concurrently with asyncio.gather().
+        """
         cwd = cwd.resolve()
         cwd.mkdir(parents=True, exist_ok=True)
 
+        tool_calls_log: list[dict[str, Any]] = []
+        messages_log: list[dict[str, Any]] = []
+        response_parts: list[str] = []
+
+        try:
+            return await asyncio.to_thread(
+                self._run_inner, prompt, cwd, tool_calls_log, messages_log, response_parts,
+            )
+        except Exception as e:
+            # Never propagate exceptions — return partial results with error info
+            logger.error("[custom] Unhandled error: %s: %s", type(e).__name__, e)
+            response_parts.append(f"(Agent terminated due to error: {type(e).__name__}: {e})")
+            return AgentResult(
+                response="\n".join(response_parts),
+                tool_calls=tool_calls_log,
+                messages=messages_log,
+            )
+
+    def _run_inner(
+        self,
+        prompt: str,
+        cwd: Path,
+        tool_calls_log: list[dict[str, Any]],
+        messages_log: list[dict[str, Any]],
+        response_parts: list[str],
+    ) -> AgentResult:
         # Initialize Gemini client
         api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
         if not api_key:
@@ -598,9 +630,6 @@ class CustomAgent(BaseAgent):
         )
 
         contents: list[Content | str] = [prompt]
-        tool_calls_log: list[dict[str, Any]] = []
-        messages_log: list[dict[str, Any]] = []
-        response_parts: list[str] = []
         last_calls: list[str] = []  # for doom-loop detection
         nudge_count = 0
 
@@ -632,7 +661,10 @@ class CustomAgent(BaseAgent):
             # Execute each tool call
             tool_response_parts: list[Part] = []
             for fc in function_calls:
-                args = dict(fc.args) if fc.args else {}
+                try:
+                    args = dict(fc.args) if fc.args else {}
+                except Exception:
+                    args = {}
                 result = _execute_tool(fc.name, args, cwd)
 
                 tool_calls_log.append({
@@ -663,7 +695,10 @@ class CustomAgent(BaseAgent):
                 last_calls.append(call_sig)
 
             # Append model response + tool results to conversation
-            model_content = response.candidates[0].content if response.candidates else None
+            try:
+                model_content = response.candidates[0].content if response.candidates else None
+            except (IndexError, AttributeError):
+                model_content = None
             if model_content:
                 contents.append(model_content)
             contents.append(Content(parts=tool_response_parts))

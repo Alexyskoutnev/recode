@@ -112,13 +112,40 @@ def run_agent_loop(
 ) -> tuple[str, list[dict[str, Any]], list[dict[str, Any]]]:
     """Execute the ReAct tool-use loop.
 
+    Never raises — all exceptions are caught and turned into partial results.
+
     Returns:
         (response_text, tool_calls_log, messages_log)
     """
-    contents: list[Content | str] = [prompt]
     tool_calls_log: list[dict[str, Any]] = []
     messages_log: list[dict[str, Any]] = []
     response_parts: list[str] = []
+
+    try:
+        _run_loop_inner(
+            client, model, config, prompt, cwd, max_iterations,
+            tool_calls_log, messages_log, response_parts,
+        )
+    except Exception as e:
+        logger.error("[harness] Unhandled error: %s: %s", type(e).__name__, e)
+        response_parts.append(f"(Agent terminated due to error: {type(e).__name__}: {e})")
+
+    return "\n".join(response_parts), tool_calls_log, messages_log
+
+
+def _run_loop_inner(
+    client: genai.Client,
+    model: str,
+    config: GenerateContentConfig,
+    prompt: str,
+    cwd: Path,
+    max_iterations: int,
+    tool_calls_log: list[dict[str, Any]],
+    messages_log: list[dict[str, Any]],
+    response_parts: list[str],
+) -> None:
+    """Inner loop logic — may raise; caller catches everything."""
+    contents: list[Content | str] = [prompt]
     last_calls: list[str] = []
     nudge_count = 0
 
@@ -153,7 +180,10 @@ def run_agent_loop(
         # ── Execute tool calls ──
         tool_response_parts: list[Part] = []
         for fc in function_calls:
-            args = dict(fc.args) if fc.args else {}
+            try:
+                args = dict(fc.args) if fc.args else {}
+            except Exception:
+                args = {}
             result = execute_tool(fc.name, args, cwd)
 
             tool_calls_log.append({
@@ -180,9 +210,12 @@ def run_agent_loop(
             last_calls.append(call_sig)
 
         # ── Append to conversation history ──
-        model_content = (
-            response.candidates[0].content if response.candidates else None
-        )
+        try:
+            model_content = (
+                response.candidates[0].content if response.candidates else None
+            )
+        except (IndexError, AttributeError):
+            model_content = None
         if model_content:
             contents.append(model_content)
         contents.append(Content(parts=tool_response_parts))
@@ -201,5 +234,3 @@ def run_agent_loop(
                     "You seem stuck repeating the same actions. "
                     "Try a different approach or finish with what you have."
                 )
-
-    return "\n".join(response_parts), tool_calls_log, messages_log

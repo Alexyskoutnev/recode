@@ -6,6 +6,7 @@ All logic is delegated to the loop, tools, prompt, and config modules.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from pathlib import Path
@@ -39,37 +40,45 @@ class CustomHarnessAgent(BaseAgent):
         return "custom-harness"
 
     async def run(self, prompt: str, cwd: Path) -> AgentResult:
-        cwd = cwd.resolve()
-        cwd.mkdir(parents=True, exist_ok=True)
+        """Run the agent. Never raises — all errors become partial results.
 
-        # Initialize Gemini client
-        api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-        if not api_key:
-            return AgentResult(error="GEMINI_API_KEY or GOOGLE_API_KEY required.")
-        client = genai.Client(api_key=api_key)
+        Runs the synchronous Gemini API loop in a thread via asyncio.to_thread()
+        so multiple tasks can execute concurrently with asyncio.gather().
+        """
+        try:
+            cwd = cwd.resolve()
+            cwd.mkdir(parents=True, exist_ok=True)
 
-        model = self._model or DEFAULT_MODEL
-        max_iters = self._max_turns if self._max_turns != 10 else MAX_ITERATIONS
-        system = SYSTEM_PROMPT.format(cwd=cwd)
+            # Initialize Gemini client
+            api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+            if not api_key:
+                return AgentResult(error="GEMINI_API_KEY or GOOGLE_API_KEY required.")
+            client = genai.Client(api_key=api_key)
 
-        config = GenerateContentConfig(
-            system_instruction=system,
-            temperature=TEMPERATURE,
-            max_output_tokens=MAX_OUTPUT_TOKENS,
-            tools=[TOOL_DECLARATIONS],
-        )
+            model = self._model or DEFAULT_MODEL
+            max_iters = self._max_turns if self._max_turns != 10 else MAX_ITERATIONS
+            system = SYSTEM_PROMPT.format(cwd=cwd)
 
-        response_text, tool_calls_log, messages_log = run_agent_loop(
-            client=client,
-            model=model,
-            config=config,
-            prompt=prompt,
-            cwd=cwd,
-            max_iterations=max_iters,
-        )
+            config = GenerateContentConfig(
+                system_instruction=system,
+                temperature=TEMPERATURE,
+                max_output_tokens=MAX_OUTPUT_TOKENS,
+                tools=[TOOL_DECLARATIONS],
+            )
 
-        return AgentResult(
-            response=response_text,
-            tool_calls=tool_calls_log,
-            messages=messages_log,
-        )
+            # Run synchronous loop in a thread so asyncio.gather works concurrently
+            response_text, tool_calls_log, messages_log = await asyncio.to_thread(
+                run_agent_loop,
+                client, model, config, prompt, cwd, max_iters,
+            )
+
+            return AgentResult(
+                response=response_text,
+                tool_calls=tool_calls_log,
+                messages=messages_log,
+            )
+        except Exception as e:
+            logger.error("[custom-harness] Unhandled error: %s: %s", type(e).__name__, e)
+            return AgentResult(
+                response=f"(Agent terminated due to error: {type(e).__name__}: {e})",
+            )
