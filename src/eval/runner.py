@@ -29,6 +29,7 @@ class TaskTrace:
     agent_name: str = ""
     response: str = ""
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
+    messages: list[dict[str, Any]] = field(default_factory=list)
     eval_result: EvalResult | None = None
     duration_s: float = 0.0
     error: str | None = None
@@ -212,6 +213,7 @@ class GDPvalRunner:
             else:
                 trace.response = agent_result.response
                 trace.tool_calls = agent_result.tool_calls
+                trace.messages = agent_result.messages
 
                 # Extract content from deliverable files in workspace
                 file_contents = self._extract_workspace_files(task_dir)
@@ -335,6 +337,7 @@ class GDPvalRunner:
                 "prompt": trace.prompt,
                 "response": trace.response,
                 "tool_calls": trace.tool_calls,
+                "messages": trace.messages,
                 "duration_s": trace.duration_s,
                 "error": trace.error,
                 "workspace_dir": trace.workspace_dir,

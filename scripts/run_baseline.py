@@ -285,12 +285,12 @@ def parse_args() -> argparse.Namespace:
                         help="Resume from an existing run directory")
     parser.add_argument("--max-turns", type=int, default=30,
                         help="Max agent turns per task (default: 30)")
-    parser.add_argument("--concurrency", type=int, default=22,
-                        help="Parallel tasks per slice (default: 22)")
+    parser.add_argument("--concurrency", type=int, default=50,
+                        help="Parallel tasks per slice (default: 50)")
     parser.add_argument("--no-judge", action="store_true",
-                        help="Use keyword heuristic instead of Gemini judge")
-    parser.add_argument("--judge-model", type=str, default=None,
-                        help="Override Gemini judge model name")
+                        help="Use keyword heuristic instead of LLM judge")
+    parser.add_argument("--judge-model", type=str, default="gpt-5.4",
+                        help="Judge model (default: gpt-5.4)")
     parser.add_argument("--verbose", action="store_true",
                         help="Enable debug logging")
     return parser.parse_args()
@@ -355,7 +355,7 @@ def setup_logging(run_dir: Path, verbose: bool) -> None:
 
 def log_plan(agents: list[str], slices: list[str], args: argparse.Namespace, run_dir: Path) -> None:
     """Log the evaluation plan before execution starts."""
-    evaluator = "keyword heuristic" if args.no_judge else "Gemini frozen judge"
+    evaluator = "keyword heuristic" if args.no_judge else f"LLM judge ({args.judge_model})"
     total = len(agents) * len(slices)
     logger.info(
         "Baseline evaluation plan:\n"
@@ -394,7 +394,9 @@ async def main() -> None:
 
     log_plan(args.agents, target_slices, args, run_dir)
 
-    # ── Main loop: iterate slices, then agents within each slice ──
+    # ── Main loop: sequential — slice by slice, agent by agent ──
+    # Sequential execution ensures consistency with the RSI loop
+    # where each slice's traces inform the next iteration's harness.
     for slice_name in target_slices:
         slice_samples = slices[slice_name]
         slice_type = "eval" if slice_name.startswith("E") else "dev"
@@ -407,7 +409,7 @@ async def main() -> None:
                 continue
 
             logger.info(
-                "[%s | %s] (%s) Starting — %d tasks",
+                "━━━ %s | %s (%s) — %d tasks ━━━",
                 agent_name, slice_name, slice_type, len(slice_samples),
             )
 
@@ -424,6 +426,8 @@ async def main() -> None:
 
             record_slice_result(trajectory, agent_name, slice_name, summary)
             save_checkpoint(run_dir, trajectory)
+
+        log_trajectory_table(trajectory)
 
     # ── Final output ──
     log_trajectory_table(trajectory)

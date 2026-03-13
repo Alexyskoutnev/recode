@@ -81,7 +81,7 @@ async def main() -> None:
     parser.add_argument("--all", action="store_true", help="Run all 220 tasks")
     parser.add_argument("--slice", type=str, help="Run a specific zipper slice (S1-S8 dev, E1-E2 eval)")
     parser.add_argument("--max-turns", type=int, default=30, help="Max agent turns per task (default: 10)")
-    parser.add_argument("--concurrency", type=int, default=22, help="Number of concurrent tasks (default: 1)")
+    parser.add_argument("--concurrency", type=int, default=32, help="Number of concurrent tasks (default: 32)")
     parser.add_argument("--output", type=str, help="Output directory (default: results/<agent>_<timestamp>/)")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for sampling (default: 42)")
     parser.add_argument("--no-judge", action="store_true", help="Use keyword heuristic instead of Gemini judge (faster, less accurate)")
@@ -155,8 +155,29 @@ async def main() -> None:
         judge_model=args.judge_model,
     )
 
+    completed_traces: list = []
+
     def on_progress(completed: int, total: int, trace: object) -> None:
-        print(f"\n[{completed}/{total}] Done.", flush=True)
+        completed_traces.append(trace)
+        # Compute running stats
+        scored = [t for t in completed_traces if hasattr(t, 'eval_result') and t.eval_result and t.eval_result.max_score > 0]
+        errors = [t for t in completed_traces if hasattr(t, 'error') and t.error]
+        avg = sum(t.eval_result.normalized_score for t in scored) / len(scored) if scored else 0
+
+        # Get this task's info
+        occ = ""
+        score_str = ""
+        task_id = getattr(trace, 'task_id', '')[:12]
+        if hasattr(trace, 'eval_result') and trace.eval_result and trace.eval_result.max_score > 0:
+            score_str = f"{trace.eval_result.normalized_score:.0%}"
+        elif hasattr(trace, 'error') and trace.error:
+            score_str = "ERR"
+        for s in samples:
+            if s.id[:12] == task_id:
+                occ = s.metadata.get("occupation", "")[:30]
+                break
+        dur = getattr(trace, 'duration_s', 0)
+        print(f"  [{completed:2d}/{total}] {score_str:>5s}  {occ:30s}  {dur:6.0f}s  | avg={avg:.0%} err={len(errors)}", flush=True)
 
     result = await runner.run_batch(
         samples,

@@ -1,4 +1,13 @@
-"""OpenAI Codex CLI agent backend — runs tasks via the Codex CLI."""
+"""OpenAI Codex CLI agent backend — runs tasks via the Codex CLI.
+
+Codex JSONL format:
+  {"type":"thread.started","thread_id":"..."}
+  {"type":"turn.started"}
+  {"type":"item.completed","item":{"type":"reasoning","text":"..."}}
+  {"type":"item.completed","item":{"type":"command_execution","command":"...","exit_code":0}}
+  {"type":"item.completed","item":{"type":"agent_message","text":"..."}}
+  {"type":"turn.completed","usage":{...}}
+"""
 
 from __future__ import annotations
 
@@ -31,7 +40,7 @@ class CodexAgent(BaseAgent):
 
         # Codex CLI: exec for non-interactive, --full-auto for auto-approve,
         # --json for JSONL output
-        full_prompt = f"{self._system_prompt}\n\n{prompt}"
+        full_prompt = f"{self._system_prompt}\n\nYour working directory is: {cwd}\nAll files MUST be saved there.\n\n{prompt}"
 
         cmd = [
             *bin_path.split(),
@@ -55,51 +64,70 @@ class CodexAgent(BaseAgent):
         # Parse Codex JSONL output
         events = self._parse_jsonl(stdout)
         if events:
-            result.response, result.tool_calls = self._parse_codex_events(events)
+            result.response, result.tool_calls, result.messages = self._parse_codex_events(events)
         else:
-            # Fall back to plain text
             result.response = stdout
 
         return result
 
     @staticmethod
-    def _parse_codex_events(events: list[dict]) -> tuple[str, list[dict]]:
-        """Parse Codex CLI JSONL events into response + tool calls."""
+    def _parse_codex_events(events: list[dict]) -> tuple[str, list[dict], list[dict]]:
+        """Parse Codex CLI JSONL events into response + tool calls + messages."""
         response_parts: list[str] = []
         tool_calls: list[dict] = []
+        messages: list[dict] = []
 
         for event in events:
             event_type = event.get("type", "")
 
-            # Codex JSONL event types
-            if event_type == "message":
-                role = event.get("role", "")
-                if role == "assistant":
-                    content = event.get("content", "")
-                    if isinstance(content, str) and content:
-                        response_parts.append(content)
-                    elif isinstance(content, list):
-                        for part in content:
-                            if isinstance(part, dict) and part.get("type") == "text":
-                                response_parts.append(part.get("text", ""))
-            elif event_type in ("function_call", "tool_call"):
-                tool_calls.append({
-                    "tool": event.get("name", event.get("function", {}).get("name", "")),
-                    "input": str(event.get("arguments", event.get("input", "")))[:500],
-                })
-            elif event_type == "exec":
-                tool_calls.append({
-                    "tool": "shell",
-                    "input": str(event.get("command", event.get("args", "")))[:500],
-                })
+            if event_type == "item.completed":
+                item = event.get("item", {})
+                item_type = item.get("type", "")
 
-            # Handle nested content blocks (OpenAI format)
-            if "output" in event and isinstance(event["output"], list):
-                for item in event["output"]:
-                    if isinstance(item, dict):
-                        if item.get("type") == "message":
-                            text = item.get("content", "")
-                            if isinstance(text, str) and text:
-                                response_parts.append(text)
+                if item_type == "command_execution":
+                    cmd = item.get("command", "")
+                    output = item.get("aggregated_output", "")
+                    exit_code = item.get("exit_code")
+                    tool_calls.append({
+                        "tool": "shell",
+                        "input": cmd[:500],
+                        "output": output[:500],
+                        "exit_code": exit_code,
+                    })
+                    messages.append({
+                        "role": "assistant",
+                        "type": "command",
+                        "command": cmd[:1000],
+                    })
+                    messages.append({
+                        "role": "tool",
+                        "type": "command_output",
+                        "output": output[:2000],
+                        "exit_code": exit_code,
+                    })
+                elif item_type == "agent_message":
+                    text = item.get("text", "")
+                    if text:
+                        response_parts.append(text)
+                        messages.append({"role": "assistant", "type": "text", "content": text})
+                elif item_type == "reasoning":
+                    text = item.get("text", "")
+                    tool_calls.append({"tool": "_reasoning", "input": text[:500]})
+                    messages.append({"role": "assistant", "type": "reasoning", "content": text[:2000]})
 
-        return "\n".join(response_parts), tool_calls
+            elif event_type == "turn.completed":
+                usage = event.get("usage", {})
+                if usage:
+                    tool_calls.append({
+                        "tool": "_usage",
+                        "input": f"in={usage.get('input_tokens', 0)} out={usage.get('output_tokens', 0)} cached={usage.get('cached_input_tokens', 0)}",
+                    })
+                    messages.append({
+                        "role": "system",
+                        "type": "usage",
+                        "input_tokens": usage.get("input_tokens", 0),
+                        "output_tokens": usage.get("output_tokens", 0),
+                        "cached_tokens": usage.get("cached_input_tokens", 0),
+                    })
+
+        return "\n".join(response_parts), tool_calls, messages

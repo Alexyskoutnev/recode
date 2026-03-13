@@ -20,6 +20,7 @@ class AgentResult:
 
     response: str = ""
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
+    messages: list[dict[str, Any]] = field(default_factory=list)
     error: str | None = None
     raw_output: str = ""
 
@@ -41,12 +42,16 @@ class BaseAgent(ABC):
     def _default_system_prompt() -> str:
         return (
             "You are a professional assistant completing real-world work tasks. "
-            "Follow the instructions precisely. Produce the exact deliverables requested. "
-            "IMPORTANT: Save ALL output files to the current working directory (./), "
-            "never to /tmp/ or any other absolute path. Use relative paths only. "
+            "Follow the instructions precisely. Produce the exact deliverables requested.\n\n"
+            "CRITICAL FILE RULES — you MUST follow these:\n"
+            "1. Save ALL files (scripts, deliverables, temp files) to the CURRENT WORKING DIRECTORY (./) only.\n"
+            "2. NEVER write to /tmp/, ~/, /Users/, or any absolute path outside ./\n"
+            "3. Use ONLY relative paths (e.g., ./output.docx, ./script.py, ./data.csv).\n"
+            "4. When running scripts, run them from ./ (e.g., python ./script.py).\n"
+            "5. All deliverables must end up in ./ when you are done.\n\n"
             "If reference files are mentioned but not found in the working directory, "
             "use reasonable placeholder data and focus on demonstrating the correct "
-            "methodology and structure. Be thorough but concise. Show your work."
+            "methodology and structure. Be thorough but concise."
         )
 
     @abstractmethod

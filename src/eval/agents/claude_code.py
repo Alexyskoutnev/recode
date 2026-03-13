@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
+from typing import Any
 
 from src.eval.agents.base import AgentResult, BaseAgent
 
@@ -12,7 +12,11 @@ logger = logging.getLogger(__name__)
 
 
 class ClaudeCodeAgent(BaseAgent):
-    """Runs tasks through Claude Code CLI (npx @anthropic-ai/claude-code)."""
+    """Runs tasks through Claude Code CLI (npx @anthropic-ai/claude-code).
+
+    Uses --output-format stream-json to capture the full message stream
+    including tool use, tool results, and assistant text.
+    """
 
     def name(self) -> str:
         return "claude-code"
@@ -24,14 +28,21 @@ class ClaudeCodeAgent(BaseAgent):
             if key.startswith("CLAUDE"):
                 os.environ.pop(key, None)
 
+        cwd = cwd.resolve()
+        cwd.mkdir(parents=True, exist_ok=True)
+
         bin_path = self._find_binary("@anthropic-ai/claude-code", "claude")
+
+        # Inject the absolute workspace path into the system prompt
+        sys_prompt = self._system_prompt + f"\n\nYour working directory is: {cwd}\nAll files MUST be saved there."
 
         cmd = [
             *bin_path.split(),
             "-p",
-            "--output-format", "json",
+            "--output-format", "stream-json",
+            "--verbose",
             "--dangerously-skip-permissions",
-            "--system-prompt", self._system_prompt,
+            "--system-prompt", sys_prompt,
             "--max-turns", str(self._max_turns),
             prompt,
         ]
@@ -47,47 +58,67 @@ class ClaudeCodeAgent(BaseAgent):
             result.error = f"Exit code {rc}: {stderr[:500]}"
             return result
 
-        # Parse JSON output
-        try:
-            data = json.loads(stdout)
-            # Claude Code JSON output has a "result" field with the final text
-            if isinstance(data, dict):
-                result.response = data.get("result", "")
-                # Extract tool calls if present
-                for msg in data.get("messages", []):
-                    if msg.get("type") == "tool_use":
-                        result.tool_calls.append({
-                            "tool": msg.get("name", ""),
-                            "input": str(msg.get("input", ""))[:500],
-                        })
-            elif isinstance(data, list):
-                # Stream JSON format - list of events
-                result.response, result.tool_calls = self._parse_claude_events(data)
-        except json.JSONDecodeError:
-            # Plain text output
+        # Parse stream-json JSONL output
+        events = self._parse_jsonl(stdout)
+        if events:
+            result.response, result.tool_calls, result.messages = self._parse_claude_events(events)
+        else:
             result.response = stdout
 
         return result
 
     @staticmethod
-    def _parse_claude_events(events: list[dict]) -> tuple[str, list[dict]]:
-        """Parse Claude Code stream-json events into response + tool calls."""
+    def _parse_claude_events(events: list[dict[str, Any]]) -> tuple[str, list[dict], list[dict]]:
+        """Parse Claude Code stream-json JSONL into response + tool calls + messages."""
         response_parts: list[str] = []
         tool_calls: list[dict] = []
+        messages: list[dict] = []
 
         for event in events:
             msg_type = event.get("type", "")
+
             if msg_type == "assistant":
-                for block in event.get("content", []):
+                message = event.get("message", {})
+                for block in message.get("content", []):
                     if block.get("type") == "text":
-                        response_parts.append(block["text"])
+                        text = block["text"]
+                        response_parts.append(text)
+                        messages.append({"role": "assistant", "type": "text", "content": text})
                     elif block.get("type") == "tool_use":
                         tool_calls.append({
                             "tool": block.get("name", ""),
                             "input": str(block.get("input", ""))[:500],
                         })
-            elif msg_type == "result":
-                if event.get("result"):
-                    response_parts.append(event["result"])
+                        messages.append({
+                            "role": "assistant",
+                            "type": "tool_use",
+                            "tool": block.get("name", ""),
+                            "input": str(block.get("input", ""))[:1000],
+                        })
 
-        return "\n".join(response_parts), tool_calls
+            elif msg_type == "user":
+                message = event.get("message", {})
+                for block in message.get("content", []):
+                    if isinstance(block, dict) and block.get("type") == "tool_result":
+                        content = block.get("content", "")
+                        if isinstance(content, str) and content:
+                            tool_calls.append({"tool": "_result", "input": content[:500]})
+                            messages.append({
+                                "role": "tool",
+                                "type": "tool_result",
+                                "content": content[:2000],
+                            })
+
+            elif msg_type == "result":
+                result_text = event.get("result", "")
+                if result_text:
+                    response_parts.append(result_text)
+                messages.append({
+                    "role": "system",
+                    "type": "result",
+                    "duration_ms": event.get("duration_ms"),
+                    "num_turns": event.get("num_turns"),
+                    "cost_usd": event.get("total_cost_usd"),
+                })
+
+        return "\n".join(response_parts), tool_calls, messages

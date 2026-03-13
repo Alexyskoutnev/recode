@@ -1,8 +1,7 @@
-"""GDPval evaluator using Gemini Pro as a frozen judge.
+"""GDPval evaluator using an LLM judge (OpenAI or Gemini).
 
-Sends the task prompt, the agent's response, and the rubric to Gemini,
-which scores each criterion individually. This replaces the keyword-based
-heuristic with an LLM judge for accurate rubric evaluation.
+Sends the task prompt, the agent's response, and the rubric to the judge,
+which scores each criterion individually.
 """
 
 from __future__ import annotations
@@ -14,15 +13,11 @@ import re
 import time
 from typing import Any
 
-from google import genai
-from google.genai.types import GenerateContentConfig
-
 from src.eval.evaluators.base import BaseEvaluator, EvalResult
 
 logger = logging.getLogger(__name__)
 
-# Default model — frozen across the entire experiment
-DEFAULT_JUDGE_MODEL = "gemini-3.1-pro-preview"
+DEFAULT_JUDGE_MODEL = "gpt-5.4"
 
 JUDGE_SYSTEM_PROMPT = """\
 You are a strict, impartial grading judge for professional work tasks.
@@ -63,33 +58,38 @@ Return ONLY the JSON object, no other text."""
 
 
 class GDPvalJudgeEvaluator(BaseEvaluator):
-    """Scores GDPval tasks using Gemini Pro as a frozen judge.
+    """Scores GDPval tasks using an LLM judge.
 
-    The judge reads the task prompt, the agent's response, and the full
-    rubric, then scores each criterion with reasoning.
+    Supports OpenAI (gpt-5.4, etc.) and Gemini (gemini-3.1-pro, etc.)
+    based on the model name prefix.
     """
 
     def __init__(
         self,
         model: str = DEFAULT_JUDGE_MODEL,
-        api_key: str | None = None,
         temperature: float = 0.0,
-        max_retries: int = 2,
+        max_retries: int = 5,
     ) -> None:
         self._model = model
         self._temperature = temperature
         self._max_retries = max_retries
+        self._backend = "openai" if model.startswith("gpt") or model.startswith("o") else "gemini"
 
-        key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-        if not key:
-            raise ValueError(
-                "Gemini API key required. Set GEMINI_API_KEY or GOOGLE_API_KEY "
-                "environment variable, or pass api_key= to the constructor."
-            )
-        self._client = genai.Client(api_key=key)
+        if self._backend == "openai":
+            from openai import OpenAI
+            key = os.environ.get("OPENAI_API_KEY")
+            if not key:
+                raise ValueError("OPENAI_API_KEY required for OpenAI judge models.")
+            self._openai_client = OpenAI(api_key=key)
+        else:
+            from google import genai
+            key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+            if not key:
+                raise ValueError("GEMINI_API_KEY required for Gemini judge models.")
+            self._gemini_client = genai.Client(api_key=key)
 
     def name(self) -> str:
-        return "gdpval_judge"
+        return f"gdpval_judge ({self._model})"
 
     def evaluate(
         self,
@@ -99,49 +99,36 @@ class GDPvalJudgeEvaluator(BaseEvaluator):
         reference: str,
         **kwargs: Any,
     ) -> EvalResult:
-        """Send task + response + rubric to Gemini for scoring."""
         if not response.strip():
-            return EvalResult(
-                task_id=task_id,
-                score=0.0,
-                max_score=0.0,
-                error="Empty response",
-            )
+            return EvalResult(task_id=task_id, score=0.0, max_score=0.0, error="Empty response")
 
         judge_prompt = self._build_judge_prompt(prompt, response, reference)
 
         for attempt in range(self._max_retries + 1):
             try:
-                judge_response = self._call_gemini(judge_prompt)
-                result = self._parse_judge_response(task_id, judge_response, response)
-                return result
+                judge_response = self._call_llm(judge_prompt)
+                return self._parse_judge_response(task_id, judge_response, response)
             except (json.JSONDecodeError, KeyError) as e:
-                logger.warning(
-                    "Judge parse error on task %s (attempt %d): %s",
-                    task_id, attempt + 1, e,
-                )
+                logger.warning("Judge parse error on task %s (attempt %d): %s", task_id, attempt + 1, e)
                 if attempt == self._max_retries:
                     return EvalResult(
-                        task_id=task_id,
-                        score=0.0,
-                        max_score=0.0,
+                        task_id=task_id, score=0.0, max_score=0.0,
                         response_text=response[:2000],
                         error=f"Judge parse failed after {self._max_retries + 1} attempts: {e}",
                         metadata={"raw_judge_response": judge_response[:2000]},
                     )
             except Exception as e:
-                logger.error("Gemini API error on task %s: %s", task_id, e)
+                logger.error("Judge API error on task %s: %s", task_id, e)
                 if attempt == self._max_retries:
                     return EvalResult(
-                        task_id=task_id,
-                        score=0.0,
-                        max_score=0.0,
+                        task_id=task_id, score=0.0, max_score=0.0,
                         response_text=response[:2000],
-                        error=f"Gemini API error: {e}",
+                        error=f"Judge API error: {e}",
                     )
-                time.sleep(2 ** attempt)  # Exponential backoff
+                wait = min(2 ** attempt * 3, 30)
+                logger.info("[judge] Retry %d in %.0fs...", attempt + 1, wait)
+                time.sleep(wait)
 
-        # Should not reach here, but satisfy type checker
         return EvalResult(task_id=task_id, score=0.0, max_score=0.0, error="Unexpected")
 
     def _build_judge_prompt(self, task_prompt: str, response: str, rubric: str) -> str:
@@ -156,13 +143,31 @@ class GDPvalJudgeEvaluator(BaseEvaluator):
 
 Evaluate the RESPONSE against each criterion in the RUBRIC. Return JSON only."""
 
+    def _call_llm(self, prompt: str) -> str:
+        if self._backend == "openai":
+            return self._call_openai(prompt)
+        return self._call_gemini(prompt)
+
+    def _call_openai(self, prompt: str) -> str:
+        response = self._openai_client.chat.completions.create(
+            model=self._model,
+            temperature=self._temperature,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": JUDGE_SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+        )
+        return response.choices[0].message.content or ""
+
     def _call_gemini(self, prompt: str) -> str:
+        from google.genai.types import GenerateContentConfig
         config = GenerateContentConfig(
             temperature=self._temperature,
             system_instruction=JUDGE_SYSTEM_PROMPT,
             response_mime_type="application/json",
         )
-        response = self._client.models.generate_content(
+        response = self._gemini_client.models.generate_content(
             model=self._model,
             contents=prompt,
             config=config,
@@ -170,10 +175,8 @@ Evaluate the RESPONSE against each criterion in the RUBRIC. Return JSON only."""
         return response.text or ""
 
     def _parse_judge_response(
-        self, task_id: str, raw_response: str, agent_response: str
+        self, task_id: str, raw_response: str, agent_response: str,
     ) -> EvalResult:
-        """Parse the JSON output from the judge."""
-        # Strip markdown code fences if present
         cleaned = raw_response.strip()
         cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
         cleaned = re.sub(r"\s*```$", "", cleaned)

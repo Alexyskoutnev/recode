@@ -2,7 +2,7 @@
 
 > **Project:** Reliable RSI for COLM 2026
 > **Date:** 2026-03-07
-> **Status:** Phase 0 complete, Phase 1 in progress — eval harness operational
+> **Status:** Phase 0 complete, Phase 1 in progress — baseline S1 run for Claude (32.3%) and Gemini (3.6%) with GPT-5.4 judge
 > **Target Venue:** COLM 2026 (San Francisco, Oct 6-9, 2026)
 
 ---
@@ -225,9 +225,12 @@ src/eval/ (TODO)                 # ← NOT YET IMPLEMENTED
 - [x] Implement split output: `traces.json` (raw) + `eval.json` (scores)
 - [x] Implement paper-quality visualization (`src/eval/visualize.py`) — trajectory, sector, failure taxonomy, model comparison, dashboard
 - [x] Run Claude Code n=1 sanity check on GDPval — **94% on keyword heuristic** (51/52 criteria)
-- [ ] Enable Gemini API billing and run Gemini judge baseline
-- [ ] Run Claude Code Opus baseline on all 8 dev slices (S1–S8, 22 tasks each)
-- [ ] Run Gemini CLI baseline on all 8 dev slices
+- [x] Implement `run_baseline.py` — orchestrates all agents across all slices with checkpointing and resume
+- [x] Run Claude Code baseline on S1 — **32.3%** (GPT-5.4 judge, 22/22 completed)
+- [x] Run Gemini CLI baseline on S1 — **3.6%** (GPT-5.4 judge, 22/22 completed)
+- [ ] Run Codex baseline on S1 (not yet started)
+- [ ] Run Claude Code Opus baseline on remaining dev slices (S2–S8)
+- [ ] Run Gemini CLI baseline on remaining dev slices (S2–S8)
 - [ ] Run Codex baseline on all 8 dev slices
 - [ ] Run baselines on hallucination/IFEval/safety benchmarks
 - [ ] Record baseline scores per slice, per benchmark, per agent

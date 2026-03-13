@@ -75,39 +75,96 @@ ANTHROPIC_API_KEY=...   # Required for Claude Code agent
 OPENAI_API_KEY=...      # Required for Codex agent
 ```
 
+### Install Agent CLIs
+
+```bash
+# Gemini CLI (for --agent gemini)
+npm install -g @google/gemini-cli
+
+# Codex CLI (for --agent codex)
+npm install -g @openai/codex
+
+# Claude Code (for --agent claude) — already installed if you're running this in Claude Code
+npm install -g @anthropic-ai/claude-code
+```
+
 ### Download Datasets
 
 ```bash
-# All benchmarks
+# All benchmarks (parquet metadata)
 python scripts/download_datasets.py
 
 # Specific ones
 python scripts/download_datasets.py --only gdpval truthfulqa
+
+# Download GDPval reference & deliverable files (509 files, parallel)
+python scripts/download_datasets.py --gdpval-files-only
 ```
 
-Datasets are saved to `data/raw/` as parquet files.
+Datasets are saved to `data/raw/` as parquet files. GDPval reference files (`.docx`, `.xlsx`) are downloaded into `data/raw/gdpval/reference_files/` and `data/raw/gdpval/deliverable_files/`.
 
 ## Running Evaluations
 
 ### Baseline Run (All Agents x All Slices)
 
+Runs claude, gemini, and codex **sequentially** across zipper slices, scored by a **GPT-5.4 frozen judge**. Checkpoints after every agent+slice so you can resume after interruption.
+
 ```bash
-# Run all agents (claude, gemini, codex) across all 10 slices
-python scripts/run_baseline.py
-
-# Run specific agents
-python scripts/run_baseline.py --agents claude gemini
-
-# Dev slices only (skip E1, E2)
+# Full baseline: all 3 agents × 8 dev slices (S1–S8) — the main experiment
 python scripts/run_baseline.py --dev-only
 
-# Resume from a checkpoint after interruption
-python scripts/run_baseline.py --resume results/baseline_20260310_143022
+# All 10 slices including eval (S1–S8 + E1–E2) — run E1/E2 ONCE at the end
+python scripts/run_baseline.py
+
+# Specific agents only
+python scripts/run_baseline.py --agents claude codex --dev-only
+
+# Specific slices
+python scripts/run_baseline.py --slices S1 S2 S3
+
+# Resume after interruption (picks up where it left off)
+python scripts/run_baseline.py --resume results/baseline_20260312_210839
+
+# Quick smoke test (keyword heuristic, 5 turns, S1 only)
+python scripts/run_baseline.py --slices S1 --no-judge --max-turns 5
 ```
 
-Results go to `results/baseline_<timestamp>/`:
-- `trajectory.json` — scores per agent per slice
-- `<agent>/<slice>/traces.json` + `eval.json` — per-slice details
+Output structure:
+```
+results/baseline_<timestamp>/
+  trajectory.json              # Score trajectory: agent × slice matrix
+  run.log                      # Full execution log
+  claude/S1/traces.json        # Per-agent per-slice raw traces
+  claude/S1/eval.json          # Per-agent per-slice scores
+  claude/S1/workspace/<id>/    # Per-task deliverable files
+  gemini/S1/...
+  codex/S1/...
+```
+
+After each slice, prints a trajectory table:
+```
+SCORE TRAJECTORY (baseline)
+=============================================================================================
+Agent               S1     S2     S3     S4     S5     S6     S7     S8     E1     E2     Avg
+---------------------------------------------------------------------------------------------
+claude           42.0%  45.1%    —      —      —      —      —      —      —      —    43.6%
+gemini           37.6%  40.2%    —      —      —      —      —      —      —      —    38.9%
+codex            46.3%  44.8%    —      —      —      —      —      —      —      —    45.6%
+=============================================================================================
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--agents` | all | Which agents to run (`claude`, `gemini`, `codex`) |
+| `--dev-only` | — | Only dev slices S1–S8 |
+| `--eval-only` | — | Only eval slices E1–E2 |
+| `--slices` | all | Run specific slices (e.g. `--slices S1 S2`) |
+| `--concurrency` | 50 | Parallel tasks within each slice |
+| `--max-turns` | 30 | Max agent turns per task |
+| `--judge-model` | `gpt-5.4` | LLM judge model |
+| `--no-judge` | — | Use keyword heuristic (fast, no API cost) |
+| `--resume DIR` | — | Resume from checkpoint |
+| `--verbose` | — | Debug logging |
 
 ### Quick Test (1 task)
 
@@ -276,7 +333,7 @@ Score trajectory across S1→S8 shows whether the harness improves over time. Ba
 
 - Python >= 3.11
 - Claude Code CLI (bundled with `claude-agent-sdk`)
-- Gemini CLI (`npm install -g @anthropic-ai/gemini-cli`) — for Gemini agent
-- Codex CLI — for Codex agent
+- Gemini CLI (`npm install -g @google/gemini-cli`) — for Gemini agent
+- Codex CLI (`npm install -g @openai/codex`) — for Codex agent
 - API keys: Anthropic, Google (Gemini), OpenAI — see `.env`
 - See `pyproject.toml` for Python dependencies
