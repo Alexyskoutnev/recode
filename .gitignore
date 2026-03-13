@@ -24,10 +24,8 @@ build/
 # Secrets
 .env
 
-# Results — track score/trace JSONs, ignore bulky workspaces
-/results/**/workspace/
-/results/**/*.tar.gz
-/results/**/run.log
+# Results
+/results/
 
 # OS
 .DS_Store
