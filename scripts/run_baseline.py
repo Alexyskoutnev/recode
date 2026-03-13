@@ -29,6 +29,7 @@ import asyncio
 import json
 import logging
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -191,8 +192,20 @@ async def run_agent_on_slice(
     logger.info("[%s | %s] Starting %d tasks (concurrency=%d)",
                 agent_name, slice_name, len(samples), concurrency)
 
-    def on_progress(done: int, total: int, *_: Any) -> None:
-        logger.info("[%s | %s] Progress: %d/%d", agent_name, slice_name, done, total)
+    slice_start = time.monotonic()
+
+    def on_progress(done: int, total: int, trace: Any) -> None:
+        elapsed = time.monotonic() - slice_start
+        rate = done / (elapsed / 60) if elapsed > 0 else 0
+        eta_min = (total - done) / rate if rate > 0 else 0
+        score_str = ""
+        if trace and trace.eval_result and trace.eval_result.max_score > 0:
+            score_str = f" | last: {trace.eval_result.normalized_score:.0%}"
+        err = " (ERROR)" if trace and trace.error else ""
+        logger.info(
+            "[%s | %s] %d/%d done (%.1f tasks/min, ETA %.0fm)%s%s",
+            agent_name, slice_name, done, total, rate, eta_min, score_str, err,
+        )
 
     result = await runner.run_batch(
         samples,
@@ -270,10 +283,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run baseline evaluation: all agents across all zipper slices",
     )
+    baseline_agents = ["claude", "gemini", "codex"]
     parser.add_argument(
-        "--agents", nargs="+", default=list(AGENTS.keys()),
+        "--agents", nargs="+", default=baseline_agents,
         choices=list(AGENTS.keys()),
-        help="Agents to evaluate (default: all)",
+        help="Agents to evaluate (default: claude, gemini, codex)",
     )
     parser.add_argument("--dev-only", action="store_true",
                         help="Only run dev slices S1–S8")
@@ -349,6 +363,10 @@ def setup_logging(run_dir: Path, verbose: bool) -> None:
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(logging.Formatter(fmt, datefmt=datefmt))
     root.addHandler(file_handler)
+
+    # Suppress noisy third-party loggers from console
+    for noisy in ("httpx", "httpcore", "openai", "google", "urllib3"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
 
     logger.info("Logging to %s", log_path)
 

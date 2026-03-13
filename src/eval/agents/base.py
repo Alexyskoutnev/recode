@@ -78,16 +78,18 @@ class BaseAgent(ABC):
         cmd: list[str],
         cwd: Path,
         timeout: int = 1800,
+        env: dict[str, str] | None = None,
     ) -> tuple[str, str, int]:
         """Run a subprocess and return (stdout, stderr, returncode)."""
         logger.debug("[subprocess] %s", " ".join(cmd))
-        env = {**os.environ, "MPLBACKEND": "Agg"}
+        base_env = env if env is not None else os.environ
+        run_env = {**base_env, "MPLBACKEND": "Agg"}
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=str(cwd),
-            env=env,
+            env=run_env,
         )
         try:
             stdout, stderr = await asyncio.wait_for(

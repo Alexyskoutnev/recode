@@ -23,10 +23,6 @@ class ClaudeCodeAgent(BaseAgent):
 
     async def run(self, prompt: str, cwd: Path) -> AgentResult:
         import os
-        # Strip all Claude Code env vars so the subprocess doesn't think it's nested
-        for key in list(os.environ):
-            if key.startswith("CLAUDE"):
-                os.environ.pop(key, None)
 
         cwd = cwd.resolve()
         cwd.mkdir(parents=True, exist_ok=True)
@@ -50,7 +46,9 @@ class ClaudeCodeAgent(BaseAgent):
             cmd.insert(cmd.index("-p"), "--model")
             cmd.insert(cmd.index("-p"), self._model)
 
-        stdout, stderr, rc = await self._run_subprocess(cmd, cwd)
+        # Build a clean env without CLAUDE* vars so subprocess doesn't think it's nested
+        clean_env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE")}
+        stdout, stderr, rc = await self._run_subprocess(cmd, cwd, env=clean_env)
 
         result = AgentResult(raw_output=stdout)
 

@@ -11,6 +11,7 @@ Codex JSONL format:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 
@@ -35,8 +36,13 @@ class CodexAgent(BaseAgent):
         # Init a git repo if needed (Codex requires it)
         git_dir = cwd / ".git"
         if not git_dir.exists():
-            import subprocess
-            subprocess.run(["git", "init"], cwd=str(cwd), capture_output=True)
+            proc = await asyncio.create_subprocess_exec(
+                "git", "init",
+                cwd=str(cwd),
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            await proc.wait()
 
         # Codex CLI: exec for non-interactive, --full-auto for auto-approve,
         # --json for JSONL output

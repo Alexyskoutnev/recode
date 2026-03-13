@@ -217,10 +217,10 @@ class GDPvalRunner:
         # Copy reference files into workspace
         n_copied = self._copy_reference_files(sample, task_dir)
         if n_copied:
-            logger.info("[files] Copied %d reference files to workspace", n_copied)
+            logger.debug("[files] Copied %d reference files to workspace", n_copied)
 
         occupation = sample.metadata.get("occupation", "unknown")
-        logger.info(
+        logger.debug(
             "[%s] Starting task %s (%s) — workspace: %s",
             self._agent.name(), sample.id[:12], occupation, task_dir,
         )
@@ -247,7 +247,7 @@ class GDPvalRunner:
                 # Extract content from deliverable files in workspace
                 file_contents = self._extract_workspace_files(task_dir)
                 if file_contents:
-                    logger.info(
+                    logger.debug(
                         "[%s] Extracted content from %d workspace files",
                         self._agent.name(), len(file_contents),
                     )
@@ -255,16 +255,16 @@ class GDPvalRunner:
                     for fname, content in file_contents.items():
                         trace.response += f"\n=== {fname} ===\n{content}\n"
 
-                logger.info(
+                logger.debug(
                     "[%s] Response: %d chars, %d tool calls",
                     self._agent.name(), len(trace.response), len(trace.tool_calls),
                 )
 
                 # Evaluate against rubric
-                logger.info("[eval] Scoring task %s with %s...", sample.id[:12], self._evaluator.name())
+                logger.debug("[eval] Scoring task %s with %s...", sample.id[:12], self._evaluator.name())
                 eval_start = time.monotonic()
 
-                trace.eval_result = self._evaluator.evaluate(
+                trace.eval_result = await self._evaluator.evaluate(
                     task_id=sample.id,
                     prompt=sample.prompt,
                     response=trace.response,
@@ -328,12 +328,18 @@ class GDPvalRunner:
         else:
             sem = asyncio.Semaphore(concurrency)
             completed = 0
+            scores: list[float] = []
+            errors = 0
 
             async def run_with_sem(sample: Sample) -> TaskTrace:
-                nonlocal completed
+                nonlocal completed, errors
                 async with sem:
                     trace = await self.run_single(sample)
                     completed += 1
+                    if trace.error:
+                        errors += 1
+                    elif trace.eval_result and trace.eval_result.max_score > 0:
+                        scores.append(trace.eval_result.normalized_score)
                     if progress_callback:
                         progress_callback(completed, len(samples), trace)
                     return trace
@@ -343,6 +349,13 @@ class GDPvalRunner:
                 return_exceptions=False,
             )
             result.traces = list(traces)
+
+            elapsed = time.monotonic() - start
+            avg = sum(scores) / len(scores) * 100 if scores else 0
+            logger.info(
+                "[batch] Done: %d tasks in %.0fs — avg %.1f%%, %d errors",
+                len(samples), elapsed, avg, errors,
+            )
 
         result.total_duration_s = time.monotonic() - start
         return result

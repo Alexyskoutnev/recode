@@ -30,7 +30,7 @@ class BaseEvaluator(ABC):
     """Abstract base for all benchmark evaluators."""
 
     @abstractmethod
-    def evaluate(self, task_id: str, prompt: str, response: str, reference: str, **kwargs: Any) -> EvalResult:
+    async def evaluate(self, task_id: str, prompt: str, response: str, reference: str, **kwargs: Any) -> EvalResult:
         """Evaluate a single response against the reference/rubric."""
         ...
 

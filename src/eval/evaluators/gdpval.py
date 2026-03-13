@@ -27,7 +27,7 @@ class GDPvalEvaluator(BaseEvaluator):
     def name(self) -> str:
         return "gdpval"
 
-    def evaluate(
+    async def evaluate(
         self,
         task_id: str,
         prompt: str,

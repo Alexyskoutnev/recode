@@ -6,11 +6,11 @@ which scores each criterion individually.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
 import re
-import time
 from typing import Any
 
 from src.eval.evaluators.base import BaseEvaluator, EvalResult
@@ -61,7 +61,8 @@ class GDPvalJudgeEvaluator(BaseEvaluator):
     """Scores GDPval tasks using an LLM judge.
 
     Supports OpenAI (gpt-5.4, etc.) and Gemini (gemini-3.1-pro, etc.)
-    based on the model name prefix.
+    based on the model name prefix. Uses async clients for non-blocking
+    concurrent scoring.
     """
 
     def __init__(
@@ -76,11 +77,11 @@ class GDPvalJudgeEvaluator(BaseEvaluator):
         self._backend = "openai" if model.startswith("gpt") or model.startswith("o") else "gemini"
 
         if self._backend == "openai":
-            from openai import OpenAI
+            from openai import AsyncOpenAI
             key = os.environ.get("OPENAI_API_KEY")
             if not key:
                 raise ValueError("OPENAI_API_KEY required for OpenAI judge models.")
-            self._openai_client = OpenAI(api_key=key)
+            self._openai_client = AsyncOpenAI(api_key=key)
         else:
             from google import genai
             key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
@@ -91,7 +92,7 @@ class GDPvalJudgeEvaluator(BaseEvaluator):
     def name(self) -> str:
         return f"gdpval_judge ({self._model})"
 
-    def evaluate(
+    async def evaluate(
         self,
         task_id: str,
         prompt: str,
@@ -106,7 +107,7 @@ class GDPvalJudgeEvaluator(BaseEvaluator):
 
         for attempt in range(self._max_retries + 1):
             try:
-                judge_response = self._call_llm(judge_prompt)
+                judge_response = await self._call_llm(judge_prompt)
                 return self._parse_judge_response(task_id, judge_response, response)
             except (json.JSONDecodeError, KeyError) as e:
                 logger.warning("Judge parse error on task %s (attempt %d): %s", task_id, attempt + 1, e)
@@ -127,7 +128,7 @@ class GDPvalJudgeEvaluator(BaseEvaluator):
                     )
                 wait = min(2 ** attempt * 3, 30)
                 logger.info("[judge] Retry %d in %.0fs...", attempt + 1, wait)
-                time.sleep(wait)
+                await asyncio.sleep(wait)
 
         return EvalResult(task_id=task_id, score=0.0, max_score=0.0, error="Unexpected")
 
@@ -143,13 +144,13 @@ class GDPvalJudgeEvaluator(BaseEvaluator):
 
 Evaluate the RESPONSE against each criterion in the RUBRIC. Return JSON only."""
 
-    def _call_llm(self, prompt: str) -> str:
+    async def _call_llm(self, prompt: str) -> str:
         if self._backend == "openai":
-            return self._call_openai(prompt)
-        return self._call_gemini(prompt)
+            return await self._call_openai(prompt)
+        return await self._call_gemini(prompt)
 
-    def _call_openai(self, prompt: str) -> str:
-        response = self._openai_client.chat.completions.create(
+    async def _call_openai(self, prompt: str) -> str:
+        response = await self._openai_client.chat.completions.create(
             model=self._model,
             temperature=self._temperature,
             response_format={"type": "json_object"},
@@ -160,17 +161,22 @@ Evaluate the RESPONSE against each criterion in the RUBRIC. Return JSON only."""
         )
         return response.choices[0].message.content or ""
 
-    def _call_gemini(self, prompt: str) -> str:
+    async def _call_gemini(self, prompt: str) -> str:
         from google.genai.types import GenerateContentConfig
         config = GenerateContentConfig(
             temperature=self._temperature,
             system_instruction=JUDGE_SYSTEM_PROMPT,
             response_mime_type="application/json",
         )
-        response = self._gemini_client.models.generate_content(
-            model=self._model,
-            contents=prompt,
-            config=config,
+        # Run sync Gemini client in a thread to avoid blocking the event loop
+        loop = asyncio.get_running_loop()
+        response = await loop.run_in_executor(
+            None,
+            lambda: self._gemini_client.models.generate_content(
+                model=self._model,
+                contents=prompt,
+                config=config,
+            ),
         )
         return response.text or ""
 
