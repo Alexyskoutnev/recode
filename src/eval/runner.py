@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import shutil
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -185,10 +186,34 @@ class GDPvalRunner:
 
         return None
 
+    @staticmethod
+    def _copy_reference_files(sample: Sample, task_dir: Path) -> int:
+        """Copy reference files into the task workspace. Returns count copied."""
+        ref_files = sample.metadata.get("reference_files", [])
+        if not hasattr(ref_files, '__len__') or len(ref_files) == 0:
+            return 0
+        gdpval_dir = Path("data/raw/gdpval")
+        copied = 0
+        for rel_path in ref_files:
+            src = gdpval_dir / rel_path
+            if src.exists():
+                dst = task_dir / src.name
+                shutil.copy2(str(src), str(dst))
+                copied += 1
+                logger.debug("Copied reference file: %s → %s", src.name, dst)
+            else:
+                logger.warning("Reference file not found: %s", src)
+        return copied
+
     async def run_single(self, sample: Sample) -> TaskTrace:
         """Run a single GDPval task and evaluate the response."""
         task_dir = self._base_working_dir / sample.id[:12]
         task_dir.mkdir(parents=True, exist_ok=True)
+
+        # Copy reference files into workspace
+        n_copied = self._copy_reference_files(sample, task_dir)
+        if n_copied:
+            logger.info("[files] Copied %d reference files to workspace", n_copied)
 
         occupation = sample.metadata.get("occupation", "unknown")
         logger.info(
