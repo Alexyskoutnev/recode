@@ -107,11 +107,36 @@ def load_checkpoint(run_dir: Path) -> dict[str, Any]:
 
 
 def save_checkpoint(run_dir: Path, trajectory: dict[str, Any]) -> None:
-    """Persist the trajectory checkpoint to disk."""
+    """Persist the trajectory checkpoint to disk.
+
+    Merges with any existing on-disk state first, so concurrent runs
+    writing to the same trajectory.json don't clobber each other's results.
+    """
     run_dir.mkdir(parents=True, exist_ok=True)
     traj_path = run_dir / "trajectory.json"
-    with open(traj_path, "w") as f:
+
+    # Merge with on-disk state to avoid clobbering concurrent writes
+    if traj_path.exists():
+        with open(traj_path) as f:
+            on_disk = json.load(f)
+        # Merge agents/scores: on-disk is base, in-memory overwrites per slice
+        for agent, agent_data in on_disk.get("agents", {}).items():
+            if agent not in trajectory.get("agents", {}):
+                trajectory.setdefault("agents", {})[agent] = agent_data
+            else:
+                for s, score in agent_data.get("scores", {}).items():
+                    trajectory["agents"][agent]["scores"].setdefault(s, score)
+        # Merge slices_completed: union of both
+        for agent, slices in on_disk.get("slices_completed", {}).items():
+            existing = set(trajectory.get("slices_completed", {}).get(agent, []))
+            merged = sorted(set(slices) | existing)
+            trajectory.setdefault("slices_completed", {})[agent] = merged
+
+    # Atomic write: write to temp file then rename
+    tmp_path = traj_path.with_suffix(".tmp")
+    with open(tmp_path, "w") as f:
         json.dump(trajectory, f, indent=2, default=str)
+    tmp_path.rename(traj_path)
     logger.debug("Checkpoint saved to %s", traj_path)
 
 
