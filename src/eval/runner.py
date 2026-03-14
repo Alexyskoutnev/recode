@@ -49,11 +49,12 @@ class BatchResult:
         if not self.traces:
             return 0.0
         total = 0.0
+        scorable = 0
         for t in self.traces:
             if t.eval_result and t.eval_result.max_score > 0:
                 total += t.eval_result.normalized_score
-            # Tasks with no eval result or max_score=0 contribute 0.0
-        return total / len(self.traces)
+                scorable += 1
+        return total / scorable if scorable > 0 else 0.0
 
     @property
     def num_completed(self) -> int:

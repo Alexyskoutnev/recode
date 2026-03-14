@@ -26,7 +26,7 @@ class CodexAgent(BaseAgent):
     def name(self) -> str:
         return "codex"
 
-    async def run(self, prompt: str, cwd: Path) -> AgentResult:
+    async def _run(self, prompt: str, cwd: Path) -> AgentResult:
         bin_path = self._find_binary("@openai/codex", "codex")
 
         # Ensure cwd is absolute (Codex needs it to exist)
@@ -48,16 +48,17 @@ class CodexAgent(BaseAgent):
         # --json for JSONL output
         full_prompt = f"{self._system_prompt}\n\nYour working directory is: {cwd}\nAll files MUST be saved there.\n\n{prompt}"
 
+        model = self._model or "gpt-5.4"
         cmd = [
             *bin_path.split(),
             "exec",
             "--full-auto",
             "--json",
+            "-m", model,
+            "-c", "model_reasoning_effort=xhigh",
             "-C", str(cwd),
             full_prompt,
         ]
-        if self._model:
-            cmd.extend(["-m", self._model])
 
         stdout, stderr, rc = await self._run_subprocess(cmd, cwd)
 

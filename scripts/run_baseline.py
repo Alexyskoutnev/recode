@@ -201,7 +201,16 @@ async def run_agent_on_slice(
     Creates an isolated output directory at <run_dir>/<agent>/<slice>/
     containing traces.json, eval.json, and a workspace/ folder.
     """
-    agent = AGENTS[agent_name](max_turns=max_turns)
+    # Per-agent rate limits (RPM), concurrency caps, and default models.
+    # Gemini 3.1 Pro has only 250 RPD — use gemini-3-flash (10K RPD).
+    # Gemini CLI spawns heavy node.js processes; cap concurrency to avoid hangs.
+    AGENT_RPM = {"gemini": 20}
+    AGENT_MAX_CONCURRENCY = {"gemini": 5}
+    AGENT_DEFAULT_MODEL = {"gemini": "gemini-3-flash-preview"}
+    rpm = AGENT_RPM.get(agent_name, 0)
+    concurrency = min(concurrency, AGENT_MAX_CONCURRENCY.get(agent_name, concurrency))
+    model = AGENT_DEFAULT_MODEL.get(agent_name)
+    agent = AGENTS[agent_name](max_turns=max_turns, rpm=rpm, model=model)
 
     output_dir = run_dir / agent_name / slice_name
     work_dir = output_dir / "workspace"

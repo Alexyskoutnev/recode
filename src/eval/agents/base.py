@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import shutil
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -26,18 +27,48 @@ class AgentResult:
     raw_output: str = ""
 
 
+class _TokenBucket:
+    """Async token-bucket rate limiter.
+
+    Allows up to *rate* calls per 60 seconds across concurrent tasks.
+    Each call to acquire() blocks until a token is available.
+    """
+
+    def __init__(self, rpm: float) -> None:
+        self._interval = 60.0 / rpm  # seconds between tokens
+        self._lock = asyncio.Lock()
+        self._next_allowed = 0.0
+
+    async def acquire(self) -> None:
+        async with self._lock:
+            now = time.monotonic()
+            if now < self._next_allowed:
+                delay = self._next_allowed - now
+                logger.debug("[rate-limit] Waiting %.1fs", delay)
+                await asyncio.sleep(delay)
+            self._next_allowed = max(now, self._next_allowed) + self._interval
+
+
 class BaseAgent(ABC):
-    """Abstract base for all agent backends (Claude Code, Gemini CLI, Codex)."""
+    """Abstract base for all agent backends (Claude Code, Gemini CLI, Codex).
+
+    Args:
+        rpm: Max requests per minute. 0 = unlimited (default).
+             Each call to run() acquires a token before executing,
+             so this works transparently with any concurrency level.
+    """
 
     def __init__(
         self,
         system_prompt: str | None = None,
         max_turns: int = 10,
         model: str | None = None,
+        rpm: float = 0,
     ) -> None:
         self._system_prompt = system_prompt or self._default_system_prompt()
         self._max_turns = max_turns
         self._model = model
+        self._rate_limiter: _TokenBucket | None = _TokenBucket(rpm) if rpm > 0 else None
 
     @staticmethod
     def _default_system_prompt() -> str:
@@ -55,9 +86,15 @@ class BaseAgent(ABC):
             "methodology and structure. Be thorough but concise."
         )
 
-    @abstractmethod
     async def run(self, prompt: str, cwd: Path) -> AgentResult:
-        """Run the agent on a prompt in the given working directory."""
+        """Run the agent, respecting rate limits if configured."""
+        if self._rate_limiter:
+            await self._rate_limiter.acquire()
+        return await self._run(prompt, cwd)
+
+    @abstractmethod
+    async def _run(self, prompt: str, cwd: Path) -> AgentResult:
+        """Subclass implementation — execute the agent on a prompt."""
         ...
 
     @abstractmethod

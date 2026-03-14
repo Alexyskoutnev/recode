@@ -21,7 +21,7 @@ class ClaudeCodeAgent(BaseAgent):
     def name(self) -> str:
         return "claude-code"
 
-    async def run(self, prompt: str, cwd: Path) -> AgentResult:
+    async def _run(self, prompt: str, cwd: Path) -> AgentResult:
         import os
 
         cwd = cwd.resolve()
@@ -32,8 +32,10 @@ class ClaudeCodeAgent(BaseAgent):
         # Inject the absolute workspace path into the system prompt
         sys_prompt = self._system_prompt + f"\n\nYour working directory is: {cwd}\nAll files MUST be saved there."
 
+        model = self._model or "claude-opus-4-6"
         cmd = [
             *bin_path.split(),
+            "--model", model,
             "-p",
             "--output-format", "stream-json",
             "--verbose",
@@ -42,9 +44,6 @@ class ClaudeCodeAgent(BaseAgent):
             "--max-turns", str(self._max_turns),
             prompt,
         ]
-        if self._model:
-            cmd.insert(cmd.index("-p"), "--model")
-            cmd.insert(cmd.index("-p"), self._model)
 
         # Build a clean env without CLAUDE* vars so subprocess doesn't think it's nested
         clean_env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE")}

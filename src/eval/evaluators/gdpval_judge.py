@@ -101,7 +101,13 @@ class GDPvalJudgeEvaluator(BaseEvaluator):
         **kwargs: Any,
     ) -> EvalResult:
         if not response.strip():
-            return EvalResult(task_id=task_id, score=0.0, max_score=0.0, error="Empty response")
+            # Parse max_score from rubric so this counts as a real 0% rather
+            # than being invisible (max_score=0) in aggregate metrics.
+            rubric_max = self._estimate_max_from_rubric(reference)
+            return EvalResult(
+                task_id=task_id, score=0.0, max_score=rubric_max,
+                error="Empty response",
+            )
 
         judge_prompt = self._build_judge_prompt(prompt, response, reference)
 
@@ -131,6 +137,14 @@ class GDPvalJudgeEvaluator(BaseEvaluator):
                 await asyncio.sleep(wait)
 
         return EvalResult(task_id=task_id, score=0.0, max_score=0.0, error="Unexpected")
+
+    @staticmethod
+    def _estimate_max_from_rubric(rubric: str) -> float:
+        """Sum positive [+N] criteria in the rubric to estimate max_score."""
+        total = 0.0
+        for m in re.finditer(r"\[\+(\d+(?:\.\d+)?)\]", rubric):
+            total += float(m.group(1))
+        return total if total > 0 else 1.0  # fallback to 1.0 to avoid div-by-zero
 
     def _build_judge_prompt(self, task_prompt: str, response: str, rubric: str) -> str:
         return f"""## TASK
@@ -191,6 +205,11 @@ Evaluate the RESPONSE against each criterion in the RUBRIC. Return JSON only."""
 
         total_score = float(data["total_score"])
         max_score = float(data["max_score"])
+
+        # Clamp score to [0, max_score] — judge penalty criteria can
+        # push the raw total negative, which is not meaningful.
+        if max_score > 0:
+            total_score = max(0.0, min(total_score, max_score))
 
         breakdown: dict[str, float] = {}
         criteria_details: list[dict[str, Any]] = []
