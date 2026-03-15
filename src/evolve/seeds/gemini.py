@@ -28,9 +28,10 @@ class AgentResult:
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
     messages: list[dict[str, Any]] = field(default_factory=list)
     error: str | None = None
+    raw_output: str = ""
 
 class BaseAgent(ABC):
-    def __init__(self, system_prompt: str | None = None, max_turns: int = 10, model: str | None = None):
+    def __init__(self, system_prompt: str | None = None, max_turns: int | None = None, model: str | None = None):
         self._system_prompt = system_prompt
         self._max_turns = max_turns
         self._model = model
@@ -112,7 +113,7 @@ TOOL_DECLARATIONS = Tool(function_declarations=[
 
 def _check_path(path: str, cwd: Path) -> tuple[Path, str | None]:
     resolved = (cwd / path).resolve()
-    if not str(resolved).startswith(str(cwd)):
+    if not resolved.is_relative_to(cwd):
         return resolved, f"Error: path '{path}' is outside the working directory."
     return resolved, None
 
@@ -204,7 +205,7 @@ def _edit_file(path: str, old_string: str, new_string: str, cwd: Path) -> str:
     if err: return err
     if not resolved.exists(): return f"Error: '{path}' not found."
     try: content = resolved.read_text(encoding="utf-8")
-    except: return "Error: binary file."
+    except Exception: return "Error: binary file."
     count = content.count(old_string)
     if count == 0: return f"Error: not found.\nPreview:\n{content[:2000]}"
     if count > 1: return f"Error: found {count} times. Add context."
@@ -235,7 +236,7 @@ def _grep(pattern: str, path: str, cwd: Path, include: str = "") -> str:
     matches: list[str] = []
     def _s(fp):
         try: text = fp.read_text(encoding="utf-8", errors="replace")
-        except: return
+        except Exception: return
         rel = str(fp.relative_to(cwd))
         for i, line in enumerate(text.splitlines(), 1):
             if regex.search(line):
@@ -255,7 +256,7 @@ def _grep(pattern: str, path: str, cwd: Path, include: str = "") -> str:
 
 def _glob_files(pattern: str, cwd: Path) -> str:
     try: matches = sorted(cwd.glob(pattern), key=lambda p: p.stat().st_mtime, reverse=True)
-    except: matches = []
+    except Exception: matches = []
     matches = [m for m in matches if not any(p.startswith(".") for p in m.relative_to(cwd).parts)]
     if not matches: return f"No files matching '{pattern}'."
     results = [f"  {str(m.relative_to(cwd))}  ({m.stat().st_size}B)" if m.is_file()
@@ -302,7 +303,7 @@ class CustomAgent(BaseAgent):
         if not api_key: return AgentResult(error="GEMINI_API_KEY or GOOGLE_API_KEY required.")
         client = genai.Client(api_key=api_key)
         model = self._model or DEFAULT_MODEL
-        max_iters = self._max_turns if self._max_turns != 10 else MAX_ITERATIONS
+        max_iters = self._max_turns if self._max_turns is not None else MAX_ITERATIONS
         config = GenerateContentConfig(
             system_instruction=SYSTEM_PROMPT.format(cwd=cwd),
             temperature=TEMPERATURE, max_output_tokens=MAX_OUTPUT_TOKENS,
@@ -328,7 +329,7 @@ class CustomAgent(BaseAgent):
             done_called = False
             for fc in fcs:
                 try: args = dict(fc.args) if fc.args else {}
-                except: args = {}
+                except Exception: args = {}
                 result = _execute_tool(fc.name, args, cwd)
                 tc_log.append({"tool": fc.name, "input": str(args)[:500]})
                 msg_log.append({"role": "assistant", "type": "tool_use", "tool": fc.name, "input": str(args)[:1000]})
@@ -338,7 +339,7 @@ class CustomAgent(BaseAgent):
                 if fc.name == "done": done_called = True; resp.append(result)
 
             try: mc = response.candidates[0].content if response.candidates else None
-            except: mc = None
+            except Exception: mc = None
             if mc: contents.append(mc)
             contents.append(Content(parts=tool_parts))
 
@@ -369,7 +370,7 @@ def _extract_fcs(response):
 
 def _get_text(response):
     try: return response.text or ""
-    except: pass
+    except Exception: pass
     if response.candidates:
         c = response.candidates[0].content
         if c and c.parts: return "\n".join(p.text for p in c.parts if p.text)

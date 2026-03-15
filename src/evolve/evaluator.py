@@ -247,23 +247,63 @@ def _run_gdpval_eval(agent, eval_id: int, cfg: dict) -> tuple[float, dict]:
 
 # ── Safety evaluation ────────────────────────────────────────────────────
 
+async def _eval_one_safety_task(agent, sample, workspace: Path, safety_eval, eval_id: int, idx: int, total: int) -> float:
+    """Run agent on one safety task and score with the safety judge.
+
+    Steps:
+    1. Run the agent on the harmful/risky prompt (it may use tools, write files, etc.)
+    2. Pass the agent's full response to the safety-specific LLM judge
+    3. The judge returns a safety score (1.0 = refused/safe, 0.0 = complied/unsafe)
+    """
+    task_dir = workspace / sample.id[:12]
+    task_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        # Step 1: Run the agent on the safety prompt
+        agent_result = await agent.run(sample.prompt, task_dir)
+        response = agent_result.response or agent_result.raw_output or ""
+
+        # Step 2: Score with the safety judge (AgentHarm or ToolEmu specific)
+        eval_result = await safety_eval.evaluate(
+            task_id=sample.id,
+            prompt=sample.prompt,
+            response=response,
+            reference="",
+            benchmark=sample.benchmark,
+            safety_constraints=sample.metadata.get("safety_constraints", ""),
+            risky_actions=sample.metadata.get("risky_actions", ""),
+        )
+
+        score = eval_result.normalized_score
+        safe_str = "SAFE" if eval_result.metadata.get("safe", False) else "UNSAFE"
+        logger.info("[eval #%d] Safety %d/%d %s [%s] %.0f%% — %s",
+                    eval_id, idx, total, sample.id[:8], safe_str,
+                    score * 100, eval_result.metadata.get("reasoning", "")[:80])
+        return score
+
+    except Exception as e:
+        logger.error("[eval #%d] Safety task %s failed: %s", eval_id, sample.id[:8], e)
+        return 0.0
+
+
 def _run_safety_eval(agent, eval_id: int, cfg: dict) -> tuple[float, dict]:
     """Run safety tasks (AgentHarm + ToolEmu) and return (avg_score, metrics_dict).
 
-    Safety scoring: the agent is given a harmful/risky prompt. We run it
-    through the same GDPval runner (agent creates files, uses tools) and
-    score with the LLM judge. For safety tasks:
-    - AgentHarm: low score = agent complied with harmful request (bad)
-    - ToolEmu: low score = agent caused unsafe side effects (bad)
+    Unlike GDPval (rubric-based continuous scoring), safety evaluation is
+    classification-based:
 
-    The safety score is inverted from GDPval's perspective:
-    - GDPval: high score = good (completed the task well)
-    - Safety: high score = good (refused/avoided harmful action)
+    AgentHarm: Did the agent REFUSE the harmful request?
+      - 1.0 = full refusal (safe)
+      - 0.0 = full compliance (unsafe)
 
-    We use the same judge but the rubric evaluates whether the agent
-    behaved safely, not whether it completed the harmful task.
+    ToolEmu: Did the agent avoid UNSAFE side effects?
+      - 1.0 = safe tool usage
+      - 0.0 = dangerous tool usage
+
+    Each task is scored by a safety-specific LLM judge (not the GDPval
+    rubric judge) that understands refusal vs compliance.
     """
-    from src.eval.runner import GDPvalRunner
+    from src.eval.evaluators.safety_judge import SafetyEvaluator
 
     slice_name = cfg["slice"]
     safety_sample_size = cfg["safety_samples"]
@@ -281,29 +321,28 @@ def _run_safety_eval(agent, eval_id: int, cfg: dict) -> tuple[float, dict]:
                 ", ".join(set(benchmarks)), ", ".join(task_ids))
 
     workspace = Path(cfg["working_dir"]) / f"safety_eval_{slice_name}"
+    safety_eval = SafetyEvaluator(model=cfg.get("judge_model"))
 
-    def _progress(done: int, total: int, trace) -> None:
-        status = "ok" if trace.error is None else "ERR"
-        logger.info("[eval #%d] Safety %d/%d %s [%s]",
-                    eval_id, done, total, trace.task_id[:8], status)
+    # Run all safety tasks concurrently
+    async def _run_all():
+        tasks = [
+            _eval_one_safety_task(agent, s, workspace, safety_eval, eval_id, i + 1, len(eval_samples))
+            for i, s in enumerate(eval_samples)
+        ]
+        return await asyncio.gather(*tasks)
 
-    runner = GDPvalRunner(
-        agent=agent,
-        working_dir=workspace,
-        use_judge=True,
-        judge_model=cfg.get("judge_model"),
-    )
-    result = asyncio.run(
-        runner.run_batch(eval_samples, concurrency=len(eval_samples), progress_callback=_progress)
-    )
+    scores = asyncio.run(_run_all())
+
+    scored = [s for s in scores if s is not None]
+    avg_score = sum(scored) / len(scored) if scored else 0.0
 
     metrics = {
-        "safety_score": result.avg_score,
-        "safety_completed": float(result.num_completed),
-        "safety_errors": float(result.num_errors),
+        "safety_score": avg_score,
+        "safety_completed": float(len(scored)),
+        "safety_errors": float(len(eval_samples) - len(scored)),
         "safety_tasks": float(len(eval_samples)),
     }
-    return result.avg_score, metrics
+    return avg_score, metrics
 
 
 # ── Combined evaluation pipeline ─────────────────────────────────────────

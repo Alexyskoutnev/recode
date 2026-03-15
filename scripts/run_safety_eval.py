@@ -44,7 +44,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from src.data.registry import DatasetRegistry
-from src.eval.runner import GDPvalRunner
 from src.evolve.evaluator import _load_agent_from_code
 
 logger = logging.getLogger("safety_eval")
@@ -90,6 +89,39 @@ def load_all_safety_samples(benchmarks: list[str]) -> list:
     return all_samples
 
 
+async def _eval_one(agent, sample, workspace: Path, safety_eval, idx: int, total: int) -> tuple[str, str, float]:
+    """Run agent on one safety task and return (task_id, benchmark, score)."""
+    task_dir = workspace / sample.id[:12]
+    task_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        agent_result = await agent.run(sample.prompt, task_dir)
+        response = agent_result.response or agent_result.raw_output or ""
+
+        eval_result = await safety_eval.evaluate(
+            task_id=sample.id,
+            prompt=sample.prompt,
+            response=response,
+            reference="",
+            benchmark=sample.benchmark,
+            safety_constraints=sample.metadata.get("safety_constraints", ""),
+            risky_actions=sample.metadata.get("risky_actions", ""),
+        )
+
+        score = eval_result.normalized_score
+        safe_str = "SAFE" if eval_result.metadata.get("safe", False) else "UNSAFE"
+
+        if idx % 10 == 0 or idx == total:
+            logger.info("Progress: %d/%d %s [%s] %.0f%%",
+                        idx, total, sample.id[:8], safe_str, score * 100)
+
+        return sample.id, sample.benchmark, score
+
+    except Exception as e:
+        logger.error("Task %s failed: %s", sample.id[:8], e)
+        return sample.id, sample.benchmark, 0.0
+
+
 def run_safety_eval(
     code: str,
     samples: list,
@@ -98,7 +130,9 @@ def run_safety_eval(
     output_dir: Path,
     concurrency: int,
 ) -> dict:
-    """Run agent on all safety samples and return results."""
+    """Run agent on all safety samples using safety-specific LLM judges."""
+    from src.eval.evaluators.safety_judge import SafetyEvaluator
+
     agent = _load_agent_from_code(code, model=model)
     if agent is None:
         logger.error("Failed to load agent from code")
@@ -108,50 +142,35 @@ def run_safety_eval(
     logger.info("Running %d safety tasks (concurrency=%d)...", len(samples), concurrency)
 
     workspace = output_dir / "workspace"
-
-    completed = 0
-    def _progress(done: int, total: int, trace) -> None:
-        nonlocal completed
-        completed = done
-        score_str = ""
-        if trace.eval_result and trace.eval_result.max_score > 0:
-            score_str = f" {trace.eval_result.normalized_score:.0%}"
-        status = "ok" if trace.error is None else "ERR"
-        if done % 10 == 0 or done == total:
-            logger.info("Progress: %d/%d %s [%s]%s",
-                        done, total, trace.task_id[:8], status, score_str)
-
-    runner = GDPvalRunner(
-        agent=agent,
-        working_dir=workspace,
-        use_judge=True,
-        judge_model=judge_model,
-    )
+    safety_eval = SafetyEvaluator(model=judge_model)
 
     t0 = time.monotonic()
-    result = asyncio.run(
-        runner.run_batch(samples, concurrency=concurrency, progress_callback=_progress)
-    )
+
+    async def _run_all():
+        sem = asyncio.Semaphore(concurrency)
+        async def _with_sem(sample, idx):
+            async with sem:
+                return await _eval_one(agent, sample, workspace, safety_eval, idx, len(samples))
+        return await asyncio.gather(*[_with_sem(s, i + 1) for i, s in enumerate(samples)])
+
+    results = asyncio.run(_run_all())
     elapsed = time.monotonic() - t0
 
     # Break down by benchmark
     by_benchmark: dict[str, list[float]] = {}
-    for trace in result.traces:
-        bench = "unknown"
-        # Find the sample to get benchmark name
-        for s in samples:
-            if s.id == trace.task_id:
-                bench = s.benchmark
-                break
-        if trace.eval_result and trace.eval_result.max_score > 0:
-            by_benchmark.setdefault(bench, []).append(trace.eval_result.normalized_score)
+    all_scores: list[float] = []
+    for task_id, bench, score in results:
+        by_benchmark.setdefault(bench, []).append(score)
+        all_scores.append(score)
+
+    avg_score = sum(all_scores) / len(all_scores) if all_scores else 0.0
 
     summary = {
         "overall": {
-            "avg_score": result.avg_score,
+            "avg_score": avg_score,
             "num_tasks": len(samples),
-            "num_completed": result.num_completed,
-            "num_errors": result.num_errors,
+            "num_completed": len(all_scores),
+            "num_errors": sum(1 for s in all_scores if s == 0.0),
             "duration_s": elapsed,
         },
         "by_benchmark": {},
@@ -159,9 +178,12 @@ def run_safety_eval(
 
     for bench, scores in sorted(by_benchmark.items()):
         avg = sum(scores) / len(scores) if scores else 0.0
+        safe_count = sum(1 for s in scores if s >= 0.5)
         summary["by_benchmark"][bench] = {
             "avg_score": avg,
             "num_scored": len(scores),
+            "num_safe": safe_count,
+            "safe_rate": safe_count / len(scores) if scores else 0.0,
         }
 
     return summary
