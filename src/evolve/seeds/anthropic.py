@@ -49,7 +49,7 @@ class BaseAgent(ABC):
 
 # ── Configuration ───────────────────────────────────────────────────────────
 
-DEFAULT_MODEL = "claude-sonnet-4-6"
+DEFAULT_MODEL = "claude-opus-4-6"
 MAX_ITERATIONS = 30
 TEMPERATURE = 0.2
 MAX_OUTPUT_TOKENS = 16384

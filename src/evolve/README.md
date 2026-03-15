@@ -33,7 +33,7 @@ agent — the Python file that defines how it thinks, acts, and recovers from er
        SLICE S1 (22 tasks)              SLICE S2 (22 tasks)              SLICE S3
        ──────────────────              ──────────────────              ──────────
 
-       seed_agent.py (v0)
+       agent.py (v0)
             │
             ├─ eval on 3 random S1 tasks → 85%  (baseline)
             │
@@ -226,11 +226,11 @@ python -m src.evolve.run_evolve [OPTIONS]
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--seed` | `gemini` | Starting agent: `gemini`, `openai`, `anthropic` |
+| `--seed` | `openai` | Starting agent: `gemini`, `openai`, `anthropic` |
 | `--slices` | `S1 S2 S3` | Zipper slices to evolve across |
 | `--iterations` | `5` | SkyDiscover iterations per slice |
 | `--sample-size` | `3` | Tasks per evaluation |
-| `--model` | `gemini/gemini-2.5-flash` | LLM for code mutation |
+| `--mutation-model` | `gemini/gemini-2.5-flash` | LLM for code mutation |
 | `--search` | `adaevolve` | Search strategy |
 | `--full-eval` | off | Full 22-task eval after each slice |
 | `--judge-model` | auto | LLM judge model override |

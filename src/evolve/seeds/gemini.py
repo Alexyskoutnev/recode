@@ -41,7 +41,7 @@ class BaseAgent(ABC):
 
 # ── Configuration ───────────────────────────────────────────────────────────
 
-DEFAULT_MODEL = "gemini-3-flash"
+DEFAULT_MODEL = "gemini-2.5-pro"
 MAX_ITERATIONS = 30
 TEMPERATURE = 0.2
 MAX_OUTPUT_TOKENS = 16384

@@ -39,7 +39,7 @@ class BaseAgent(ABC):
 
 # ── Configuration ───────────────────────────────────────────────────────────
 
-DEFAULT_MODEL = "gpt-5-mini"
+DEFAULT_MODEL = "gpt-5.4"
 MAX_ITERATIONS = 30
 TEMPERATURE = 0.2
 MAX_OUTPUT_TOKENS = 16384

@@ -1,3 +1,5 @@
+"""SkyDiscover configuration builder."""
+
 from __future__ import annotations
 
 from skydiscover.config import (
@@ -12,25 +14,20 @@ from skydiscover.config import (
     _DB_CONFIG_BY_TYPE,
 )
 
-# Tells SkyDiscover what it's evolving — injected as the system message.
 SYSTEM_MESSAGE = """\
 You are evolving the SOURCE CODE of an AI coding agent. The agent is a single
-Python file. It receives a task, works in an isolated directory, and must
-produce correct output files. It is scored on task completion quality.
+Python file that receives a task, works in an isolated directory, and produces
+output files. It is scored on task completion quality.
 
-The entire file is yours to change. Rewrite anything — config, prompts, tools,
-the agent loop, helper functions, error handling. Add new tools. Remove tools.
-Change the architecture. Be creative. The only thing that matters is the score.
-
-If your changes break the code (syntax errors, crashes), the variant scores 0
-and gets discarded. Working code that scores higher survives. That's it.
+The entire file is yours to change — config, prompts, tools, the agent loop,
+helper functions, error handling. Add or remove tools. Change the architecture.
+The only constraint is the score: working code that scores higher survives.
 """
 
 
 def build_config(model: str, iterations: int, search: str = "adaevolve") -> Config:
     """Build a SkyDiscover Config for the chosen search strategy."""
-    db_cls = _DB_CONFIG_BY_TYPE.get(search, AdaEvolveDatabaseConfig)
-    db_config = db_cls()
+    db_config = _DB_CONFIG_BY_TYPE.get(search, AdaEvolveDatabaseConfig)()
 
     if search == "adaevolve":
         db_config = AdaEvolveDatabaseConfig(
