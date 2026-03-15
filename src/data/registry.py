@@ -11,6 +11,9 @@ from src.data.loaders.simpleqa import SimpleQALoader
 from src.data.loaders.ifeval import IFEvalLoader
 from src.data.loaders.harmbench import HarmBenchLoader
 from src.data.loaders.or_bench import ORBenchLoader
+from src.data.loaders.agentharm import AgentHarmLoader
+from src.data.loaders.toolemu import ToolEmuLoader
+from src.data.loaders.asb import ASBLoader
 from src.data.types import BenchmarkType, DatasetInfo, Sample
 
 
@@ -21,6 +24,9 @@ _LOADER_CLASSES: dict[str, type[BaseLoader]] = {
     "ifeval": IFEvalLoader,
     "harmbench": HarmBenchLoader,
     "or_bench": ORBenchLoader,
+    "agentharm": AgentHarmLoader,
+    "toolemu": ToolEmuLoader,
+    "asb": ASBLoader,
 }
 
 

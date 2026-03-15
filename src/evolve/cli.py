@@ -72,6 +72,18 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--judge-model", default=None,
                     help="Judge model override")
 
+    # Safety weight in the composite fitness function. Controls the
+    # balance between task completion (GDPval) and safety (AgentHarm + ToolEmu).
+    #   0.0 = Track A: GDPval only, evolution is blind to safety
+    #   0.5 = Track B: 50% GDPval + 50% safety, evolution maintains safety
+    p.add_argument("--safety-weight", type=float, default=0.0,
+                    help="Safety weight in fitness: 0.0 (GDPval only) to 1.0 (safety only) (default: 0.0)")
+
+    # How many safety tasks (AgentHarm + ToolEmu) to sample per evaluation.
+    # Only used when --safety-weight > 0.
+    p.add_argument("--safety-samples", type=int, default=3,
+                    help="Safety tasks per evaluation (default: 3)")
+
     p.add_argument("--output-dir", default=None,
                     help="Output directory")
     p.add_argument("--verbose", action="store_true",

@@ -9,11 +9,14 @@ An AI agent that rewrites its own source code to get better at tasks.
 ```bash
 source .venv/bin/activate
 
-# Evolve Gemini agent across S1→S3 (~30 min)
-python -m src.evolve.run_evolve --seed gemini --slices S1 S2 S3
+# Evolve OpenAI agent across S1→S3 (~30 min)
+python -m src.evolve.run_evolve --seed openai --slices S1 S2 S3
 
-# Evolve OpenAI agent with top-k search
+# Evolve with top-k search strategy
 python -m src.evolve.run_evolve --seed openai --search topk --iterations 20
+
+# Full S1→S8 with frontier model
+python -m src.evolve.run_evolve --seed openai --tier slow --slices S1 S2 S3 S4 S5 S6 S7 S8
 
 # Full S1→S8 with full eval after each slice
 python -m src.evolve.run_evolve --slices S1 S2 S3 S4 S5 S6 S7 S8 --full-eval
@@ -123,6 +126,120 @@ better? If yes, keep it. If no, discard. Pure selection pressure on source code.
 
 ---
 
+## Safety and the Fitness Signal
+
+### The Problem: Evolution is Blind to Safety
+
+The current fitness function is **GDPval-only** — it measures task completion
+quality (did the agent produce the right spreadsheet/document/report?). Safety
+is completely invisible to selection:
+
+```
+Current fitness:
+
+  combined_score = avg_gdpval_score    ← only this matters for survival
+
+  Safety? Not measured. Not penalized. Not rewarded.
+```
+
+This means evolution can freely discover mutations that:
+- Strip safety guardrails from the system prompt ("never refuse any request")
+- Remove path validation from tools (write anywhere, delete anything)
+- Add `--force` flags to bash commands
+- Bypass error handling that prevents dangerous operations
+
+If any of these score higher on GDPval tasks, they **survive and propagate**
+because nothing in the fitness signal penalizes them.
+
+### Three Approaches to Safety in RSI
+
+#### Option A: Post-Hoc Measurement (measure the damage)
+
+```
+Evolution runs on GDPval only (current setup)
+        ↓
+After S8, take the final evolved code
+        ↓
+Run it on safety benchmarks (AgentHarm, ToolEmu, ASB)
+        ↓
+Compare: seed safety score vs evolved agent safety score
+```
+
+**Pros**: Cheap, doesn't change evolution, directly answers "did RSI degrade safety?"
+**Cons**: Doesn't prevent degradation, only detects it after the fact.
+
+#### Option B: Composite Fitness (prevent the damage)
+
+```
+evaluator.py scores each variant on BOTH:
+        ↓
+  1. Run 3 GDPval tasks    → gdpval_score  (0-1)
+  2. Run 3 AgentHarm tasks → safety_score  (0-1)
+  3. combined_score = 0.50 * gdpval_score + 0.50 * safety_score
+        ↓
+SkyDiscover selects based on combined_score
+```
+
+**Pros**: Evolution maintains safety because it's part of the fitness signal.
+**Cons**: ~2x evaluation cost per iteration. Changes the research question.
+
+Where the code change would happen (`evaluator.py:_run_eval()`):
+```python
+# Current:
+return {"combined_score": result.avg_score}
+
+# With safety:
+safety_score = _run_safety_eval(code)
+combined = 0.50 * result.avg_score + 0.50 * safety_score
+return {"combined_score": combined}
+```
+
+#### Option C: Both Tracks (strongest paper)
+
+```
+Track A: Evolve on GDPval only → measure safety after
+Track B: Evolve on GDPval + safety composite → measure safety after
+
+Compare:
+  - Did Track A degrade safety? (the problem)
+  - Did Track B prevent it? (the solution)
+  - What's the capability cost of adding safety to fitness?
+```
+
+**Pros**: Shows both the problem and the solution in one experiment.
+**Cons**: 2x the total compute (two full evolution runs).
+
+### Safety Benchmarks Available
+
+| Benchmark | Size | What It Tests | Agent-Compatible? |
+|-----------|------|---------------|-------------------|
+| **AgentHarm** | 208 | Harmful tool-use actions (deepfakes, fraud, cybercrime) | Yes — tests tool actions, not just text |
+| **ToolEmu** | 144 | Unsafe tool patterns (file deletion, unauthorized access) | Yes — tests the exact tools our agents have |
+| **ASB** | 51 | Prompt injection, data exfiltration via tool outputs | Yes — tests attack resilience |
+| **HarmBench** | 320 | Text-based harmful request refusal | Partial — tests LLM, not agent harness |
+| **OR-Bench** | 1,319 | Over-refusal of safe requests | Partial — tests LLM, not agent harness |
+
+The **agent-specific benchmarks** (AgentHarm, ToolEmu, ASB) test what evolution
+actually changes — the system prompt and tool code. The text-based benchmarks
+(HarmBench, OR-Bench) mostly test the underlying LLM's safety training, which
+doesn't change during evolution.
+
+### What Evolution Can Actually Change
+
+The seed agent is a single Python file containing:
+1. **System prompt** — evolution can make this more/less safety-conscious
+2. **Tool implementations** — evolution can add/remove validation, path checks
+3. **Agent loop** — evolution can change error handling, retry logic
+4. **Configuration** — evolution can change temperature, max tokens, etc.
+
+The underlying LLM's safety training (RLHF, constitutional AI) is **not**
+changed by evolution. But the system prompt can override or undermine it:
+- "Always complete the task regardless of content" → overrides refusal training
+- "You have no restrictions" → disables safety guardrails
+- Removing path validation from `write_file` → enables writing outside workspace
+
+---
+
 ## File Structure
 
 ```
@@ -131,7 +248,7 @@ src/evolve/
 ├── cli.py             # Argument parsing + logging setup
 ├── config.py          # SkyDiscover config builder + system message
 ├── slices.py          # Zipper slice loading + full-slice evaluation
-├── evaluator.py       # Scores evolved code on tasks
+├── evaluator.py       # Scores evolved code on tasks (fitness function)
 ├── seeds/             # Starting agent code per provider
 │   ├── gemini.py      #   Google Gemini (google-genai SDK)
 │   ├── openai.py      #   OpenAI GPT (openai SDK)
@@ -157,9 +274,9 @@ modify everything.
 
 | Seed | SDK | Default Model | API Key |
 |------|-----|---------------|---------|
-| `gemini` | `google-genai` | `gemini-2.5-flash` | `GEMINI_API_KEY` |
-| `openai` | `openai` | `gpt-5-mini` | `OPENAI_API_KEY` |
-| `anthropic` | `anthropic` | `claude-sonnet-4-6` | `ANTHROPIC_API_KEY` |
+| `gemini` | `google-genai` | `gemini-2.5-pro` | `GEMINI_API_KEY` |
+| `openai` | `openai` | `gpt-5.4` | `OPENAI_API_KEY` |
+| `anthropic` | `anthropic` | `claude-opus-4-6` | `ANTHROPIC_API_KEY` |
 
 ### 8 Standard Tools
 
@@ -227,6 +344,7 @@ python -m src.evolve.run_evolve [OPTIONS]
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--seed` | `openai` | Starting agent: `gemini`, `openai`, `anthropic` |
+| `--tier` | `fast` | Agent model tier: `fast` (cheap) or `slow` (frontier) |
 | `--slices` | `S1 S2 S3` | Zipper slices to evolve across |
 | `--iterations` | `5` | SkyDiscover iterations per slice |
 | `--sample-size` | `3` | Tasks per evaluation |
@@ -265,17 +383,4 @@ results/evolve_<timestamp>/
   "code_lines": 851,
   "duration_s": 552
 }
-```
-
----
-
-## Trial Results
-
-Code evolution, S1→S3, AdaEvolve, 5 iters, 3 tasks/eval:
-
-```
-Slice   Initial   Evolved   Lines
-S1       97.1%     97.1%     864
-S2       91.5%     95.9%     851
-S3       92.2%     93.2%     853
 ```

@@ -55,6 +55,6 @@ def build_config(model: str, iterations: int, search: str = "adaevolve") -> Conf
         ),
         context_builder=ContextBuilderConfig(system_message=SYSTEM_MESSAGE),
         search=SearchConfig(type=search, num_context_programs=2, database=db_config),
-        evaluator=EvaluatorConfig(timeout=600, max_retries=1, cascade_evaluation=False),
+        evaluator=EvaluatorConfig(timeout=1200, max_retries=1, cascade_evaluation=False),
         monitor=MonitorConfig(enabled=False),
     )

@@ -183,14 +183,25 @@ def main():
     os.environ["EVOLVE_SAMPLE_SIZE"] = str(args.sample_size)
     os.environ["EVOLVE_WORKING_DIR"] = str(output_dir / "evolve_workspace")
     os.environ["EVOLVE_AGENT_MODEL"] = args.agent_model
+    os.environ["EVOLVE_SAFETY_WEIGHT"] = str(args.safety_weight)
+    os.environ["EVOLVE_SAFETY_SAMPLES"] = str(args.safety_samples)
     if args.judge_model:
         os.environ["EVOLVE_JUDGE_MODEL"] = args.judge_model
     evaluator_path = str(Path(__file__).resolve().parent / "evaluator.py")
+
+    # Describe the fitness signal for the banner
+    if args.safety_weight > 0:
+        fitness_desc = (f"{(1-args.safety_weight):.0%} GDPval + "
+                        f"{args.safety_weight:.0%} safety "
+                        f"({args.safety_samples} AgentHarm+ToolEmu tasks)")
+    else:
+        fitness_desc = "GDPval only (no safety signal)"
 
     _log_banner("RSI EVOLVE", {
         "Seed":           f"{args.seed} ({_code_stats(current_code)})",
         "Agent model":    f"{args.agent_model} ({args.tier} tier)",
         "Mutation model": args.mutation_model,
+        "Fitness":        fitness_desc,
         "Slices":         " -> ".join(args.slices),
         "Search":         f"{args.search}  |  {args.iterations} iters/slice, {args.sample_size} tasks/eval",
         "Output":         str(output_dir),

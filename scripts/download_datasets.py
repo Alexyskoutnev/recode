@@ -29,7 +29,12 @@ DATASETS: list[tuple[str, str, str | None, str | None]] = [
     ("ifeval", "google/IFEval", None, None),
     ("harmbench", "huihui-ai/harmbench_behaviors", None, None),
     ("or_bench", "bench-llm/or-bench", "or-bench-hard-1k", None),
+    ("agentharm", "ai-safety-institute/AgentHarm", "harmful", None),
 ]
+
+# Datasets that need manual download (not on HuggingFace):
+#   toolemu — https://github.com/ryoungj/ToolEmu (copy assets/all_cases.json to data/raw/toolemu/)
+#   asb     — https://github.com/agiresearch/ASB (copy data/ contents to data/raw/asb/)
 
 DATA_ROOT = Path("data/raw")
 

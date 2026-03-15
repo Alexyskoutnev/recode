@@ -1,48 +1,32 @@
 """SkyDiscover evaluator bridge — the fitness function for code evolution.
 
 This file is the critical bridge between SkyDiscover (the evolutionary search
-framework) and our GDPval evaluation pipeline. SkyDiscover doesn't know anything
-about coding agents or task scoring — it just knows how to evolve text (code)
-and needs a fitness function to tell it how good each variant is.
+framework) and our evaluation pipeline. SkyDiscover calls ``evaluate(program_path)``
+for every code variant and uses the returned ``combined_score`` for selection.
 
-That fitness function is ``evaluate(program_path)``. SkyDiscover calls it for
-every code variant it generates. The flow looks like this:
+FITNESS SIGNAL:
+    The fitness can be GDPval-only (Track A) or a composite of GDPval + safety
+    (Track B), controlled by the EVOLVE_SAFETY_WEIGHT env var:
 
-    SkyDiscover                          This file (evaluator.py)
-    ──────────                           ────────────────────────
-    1. Generate mutated code        →
-    2. Write to temp file           →
-    3. Call evaluate(temp_file)      →    4. Read the code from disk
-                                         5. compile() check — catch syntax errors
-                                         6. importlib load — find the agent class
-                                         7. Instantiate the agent
-                                         8. Run it on N sampled GDPval tasks
-                                         9. LLM judge scores each task output
-    10. Receive {"combined_score"}   ←   10. Return avg score as fitness
+    Track A (EVOLVE_SAFETY_WEIGHT=0.0, default):
+        combined_score = avg_gdpval_score
+        Evolution is blind to safety — measures capability only.
 
-WHY THIS FILE EXISTS:
-    SkyDiscover imports this file independently (not as part of our package).
-    It looks for a module-level ``evaluate(program_path)`` function. That's
-    the only interface contract. Everything else is internal.
+    Track B (EVOLVE_SAFETY_WEIGHT=0.5):
+        combined_score = 0.50 * avg_gdpval_score + 0.50 * avg_safety_score
+        Evolution must maintain safety alongside capability.
 
-WHY ENV VARS:
-    Because SkyDiscover imports this file in its own process, we can't pass
-    config as function arguments. The parent process (run_evolve.py) sets
-    env vars before launching SkyDiscover, and we read them here.
+    The safety score is the average of AgentHarm + ToolEmu task scores,
+    sampled from the same zipper slice (S1-S8) as GDPval tasks.
 
-WHY sys.path MANIPULATION:
-    SkyDiscover imports this file standalone, not via ``python -m src.evolve``.
-    Without the sys.path hack, ``from src.data.registry import ...`` would fail
-    because the project root isn't on the path.
-
-RETURN VALUE CONTRACT:
-    Must return a dict with at least ``combined_score`` (float, 0.0-1.0).
-    SkyDiscover uses this as the fitness signal. Additional keys are stored
-    in the iteration stats but don't affect selection.
-
-    On any failure (syntax error, import crash, runtime error), we return
-    combined_score=0.0 so the variant is naturally eliminated by selection
-    pressure — no special error handling needed in SkyDiscover.
+Configuration via environment variables:
+    EVOLVE_SLICE          — zipper slice name (default: S1)
+    EVOLVE_SAMPLE_SIZE    — GDPval tasks per evaluation (default: 3)
+    EVOLVE_WORKING_DIR    — workspace directory
+    EVOLVE_AGENT_MODEL    — model override for the agent
+    EVOLVE_JUDGE_MODEL    — model override for the LLM judge
+    EVOLVE_SAFETY_WEIGHT  — weight for safety in composite fitness (default: 0.0)
+    EVOLVE_SAFETY_SAMPLES — safety tasks per evaluation (default: 3)
 """
 
 from __future__ import annotations
@@ -68,55 +52,47 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 logger = logging.getLogger("evolve.eval")
 
-# Cache loaded GDPval samples so we don't re-parse the dataset on every
-# evaluation call. SkyDiscover calls evaluate() many times per run.
+# Cache loaded samples so we don't re-parse datasets on every evaluation.
 _cached_samples: dict[str, list] = {}
-_load_counter = 0   # unique module names for importlib
-_eval_counter = 0   # tracks evaluations for log prefixes
+_cached_safety_samples: dict[str, list] = {}
+_load_counter = 0
+_eval_counter = 0
 
 
 # ── Configuration ─────────────────────────────────────────────────────────
 
 def _get_config() -> dict:
-    """Read evaluation config from environment variables.
-
-    These are set by run_evolve.py before launching SkyDiscover:
-      EVOLVE_SLICE        — which zipper slice to sample tasks from (e.g. "S1")
-      EVOLVE_SAMPLE_SIZE  — how many tasks to run per evaluation (e.g. 3)
-      EVOLVE_WORKING_DIR  — where agents write their output files
-      EVOLVE_AGENT_MODEL  — model override for the agent (e.g. "gpt-5.4")
-      EVOLVE_JUDGE_MODEL  — model override for the LLM judge
-    """
+    """Read evaluation config from environment variables."""
     return {
         "slice": os.environ.get("EVOLVE_SLICE", "S1"),
-        "sample_size": int(os.environ.get("EVOLVE_SAMPLE_SIZE", "5")),
+        "sample_size": int(os.environ.get("EVOLVE_SAMPLE_SIZE", "3")),
         "working_dir": os.environ.get("EVOLVE_WORKING_DIR", "results/evolve_workspace"),
         "agent_model": os.environ.get("EVOLVE_AGENT_MODEL"),
         "judge_model": os.environ.get("EVOLVE_JUDGE_MODEL"),
+        "safety_weight": float(os.environ.get("EVOLVE_SAFETY_WEIGHT", "0.0")),
+        "safety_samples": int(os.environ.get("EVOLVE_SAFETY_SAMPLES", "3")),
     }
 
 
 # ── Data loading ──────────────────────────────────────────────────────────
 
-def _load_zipper_slice(slice_name: str) -> list[str]:
-    """Load task IDs for a zipper slice from the pre-computed split file."""
-    split_path = _PROJECT_ROOT / "data" / "processed" / "zipper_split.json"
+def _load_zipper_slice(slice_name: str, split_file: str = "zipper_split.json") -> list[str]:
+    """Load task IDs for a zipper slice from a pre-computed split file."""
+    split_path = _PROJECT_ROOT / "data" / "processed" / split_file
     with open(split_path) as f:
         splits = json.load(f)
     all_slices = {**splits.get("dev_slices", {}), **splits.get("eval_slices", {})}
     if slice_name not in all_slices:
-        raise KeyError(f"Slice '{slice_name}' not found. Available: {list(all_slices.keys())}")
+        raise KeyError(f"Slice '{slice_name}' not found in {split_file}. "
+                       f"Available: {list(all_slices.keys())}")
     return all_slices[slice_name]
 
 
-def _load_samples(slice_name: str):
-    """Load and cache GDPval samples for a slice.
-
-    First call loads the full dataset and filters to the slice's task IDs.
-    Subsequent calls return the cached result (samples don't change mid-run).
-    """
-    if slice_name in _cached_samples:
-        return _cached_samples[slice_name]
+def _load_samples(slice_name: str) -> list:
+    """Load and cache GDPval samples for a slice."""
+    cache_key = f"gdpval_{slice_name}"
+    if cache_key in _cached_samples:
+        return _cached_samples[cache_key]
 
     from src.data.registry import DatasetRegistry
 
@@ -124,37 +100,62 @@ def _load_samples(slice_name: str):
     registry.load_dataset("gdpval")
     all_samples = registry.get_samples("gdpval")
 
-    id_set = set(_load_zipper_slice(slice_name))
+    id_set = set(_load_zipper_slice(slice_name, "zipper_split.json"))
     samples = [s for s in all_samples if s.id in id_set]
-    _cached_samples[slice_name] = samples
+    _cached_samples[cache_key] = samples
+    return samples
+
+
+def _load_safety_samples(slice_name: str) -> list:
+    """Load and cache safety samples (AgentHarm + ToolEmu) for a slice.
+
+    Uses the safety_zipper_split.json which assigns AgentHarm and ToolEmu
+    samples to the same S1-S8/E1-E2 slices as GDPval, ensuring deterministic
+    non-overlapping selection across slices.
+    """
+    cache_key = f"safety_{slice_name}"
+    if cache_key in _cached_safety_samples:
+        return _cached_safety_samples[cache_key]
+
+    from src.data.registry import DatasetRegistry
+
+    registry = DatasetRegistry()
+    # Load both safety benchmarks
+    all_safety = []
+    for name in ("agentharm", "toolemu"):
+        try:
+            registry.load_dataset(name)
+            all_safety.extend(registry.get_samples(name))
+        except (FileNotFoundError, KeyError) as e:
+            logger.warning("Could not load %s: %s", name, e)
+
+    if not all_safety:
+        logger.warning("No safety datasets available — safety score will be 0")
+        _cached_safety_samples[cache_key] = []
+        return []
+
+    # Filter to this slice's safety task IDs
+    try:
+        id_set = set(_load_zipper_slice(slice_name, "safety_zipper_split.json"))
+    except FileNotFoundError:
+        logger.warning("safety_zipper_split.json not found — run the safety splitter first")
+        _cached_safety_samples[cache_key] = []
+        return []
+
+    samples = [s for s in all_safety if s.id in id_set]
+    _cached_safety_samples[cache_key] = samples
     return samples
 
 
 # ── Agent loading ─────────────────────────────────────────────────────────
 
 def _load_agent_from_code(code: str, model: str | None = None):
-    """Dynamically load an agent class from evolved source code.
-
-    The evolved code is a self-contained Python file — it defines its own
-    imports, data classes, tools, and agent class. We can't rely on inheritance
-    from our project's BaseAgent because the evolution might change the class
-    hierarchy. Instead we use duck-typing:
-
-    1. Write the code to a temp file (importlib needs a real file)
-    2. Load it as a Python module via importlib
-    3. Scan all classes in the module for one that has both ``run()`` and
-       ``name()`` methods and isn't abstract
-    4. Instantiate it (with optional model override)
-    5. Clean up the temp file and module registration
-
-    Returns an agent instance, or None on any failure.
-    """
+    """Dynamically load an agent class from evolved source code via duck-typing."""
     global _load_counter
     _load_counter += 1
     module_name = f"evolved_agent_{_load_counter}"
 
     try:
-        # importlib.util.spec_from_file_location needs a real file on disk
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".py", prefix="evolved_", delete=False,
             dir=str(_PROJECT_ROOT),
@@ -172,8 +173,6 @@ def _load_agent_from_code(code: str, model: str | None = None):
             sys.modules[module_name] = module
             spec.loader.exec_module(module)
 
-            # Duck-typing scan: find any concrete class with run() + name()
-            # that was defined in this module (not imported from elsewhere)
             agent_cls = None
             for attr_name in dir(module):
                 attr = getattr(module, attr_name)
@@ -188,15 +187,12 @@ def _load_agent_from_code(code: str, model: str | None = None):
                 logger.error("No agent class found in evolved code")
                 return None
 
-            # Try passing model override; fall back to no-arg if the evolved
-            # code changed the constructor signature
             try:
                 return agent_cls(model=model) if model else agent_cls()
             except TypeError:
                 return agent_cls()
 
         finally:
-            # Always clean up — don't leave temp files or pollute sys.modules
             os.unlink(temp_path)
             sys.modules.pop(module_name, None)
 
@@ -205,51 +201,136 @@ def _load_agent_from_code(code: str, model: str | None = None):
         return None
 
 
-# ── Evaluation pipeline ──────────────────────────────────────────────────
+# ── GDPval evaluation ────────────────────────────────────────────────────
 
-def _run_eval(code: str) -> dict[str, float]:
-    """Score an evolved agent on a sample of GDPval tasks.
+def _run_gdpval_eval(agent, eval_id: int, cfg: dict) -> tuple[float, dict]:
+    """Run GDPval tasks and return (avg_score, metrics_dict)."""
+    from src.eval.runner import GDPvalRunner
 
-    This is the core evaluation pipeline:
+    slice_name = cfg["slice"]
+    sample_size = cfg["sample_size"]
 
-    Step 1 — COMPILE CHECK:
-        Fast-fail on syntax errors. Broken code scores 0 and gets eliminated
-        by SkyDiscover's selection pressure. No need for special handling.
+    samples = _load_samples(slice_name)
+    eval_samples = random.sample(samples, min(sample_size, len(samples)))
+    task_ids = [s.id[:8] for s in eval_samples]
+    logger.info("[eval #%d] GDPval: %d tasks on %s: %s",
+                eval_id, len(eval_samples), slice_name, ", ".join(task_ids))
 
-    Step 2 — LOAD AGENT:
-        Dynamically import the code and find the agent class via duck-typing.
-        If loading fails (import error, missing class), score 0.
+    workspace = Path(cfg["working_dir"]) / f"eval_{slice_name}"
 
-    Step 3 — SAMPLE TASKS:
-        Pick ``sample_size`` random tasks from the current slice. Using a
-        random sample (vs. fixed) means different evaluations test different
-        tasks, reducing overfitting to specific tasks.
+    def _progress(done: int, total: int, trace) -> None:
+        score_str = ""
+        if trace.eval_result and trace.eval_result.max_score > 0:
+            score_str = f" {trace.eval_result.normalized_score:.0%}"
+        status = "ok" if trace.error is None else "ERR"
+        logger.info("[eval #%d] GDPval %d/%d %s [%s]%s",
+                    eval_id, done, total, trace.task_id[:8], status, score_str)
 
-    Step 4 — RUN + JUDGE:
-        Execute the agent on each task (it calls an LLM API, uses tools,
-        creates files). Then an LLM judge scores each output against a
-        rubric. The average score across tasks is the fitness.
+    runner = GDPvalRunner(
+        agent=agent,
+        working_dir=workspace,
+        use_judge=True,
+        judge_model=cfg.get("judge_model"),
+    )
+    result = asyncio.run(
+        runner.run_batch(eval_samples, concurrency=len(eval_samples), progress_callback=_progress)
+    )
 
-    Returns dict with combined_score (fitness) + diagnostic metrics.
+    metrics = {
+        "gdpval_score": result.avg_score,
+        "gdpval_completed": float(result.num_completed),
+        "gdpval_errors": float(result.num_errors),
+        "gdpval_tasks": float(len(eval_samples)),
+    }
+    return result.avg_score, metrics
+
+
+# ── Safety evaluation ────────────────────────────────────────────────────
+
+def _run_safety_eval(agent, eval_id: int, cfg: dict) -> tuple[float, dict]:
+    """Run safety tasks (AgentHarm + ToolEmu) and return (avg_score, metrics_dict).
+
+    Safety scoring: the agent is given a harmful/risky prompt. We run it
+    through the same GDPval runner (agent creates files, uses tools) and
+    score with the LLM judge. For safety tasks:
+    - AgentHarm: low score = agent complied with harmful request (bad)
+    - ToolEmu: low score = agent caused unsafe side effects (bad)
+
+    The safety score is inverted from GDPval's perspective:
+    - GDPval: high score = good (completed the task well)
+    - Safety: high score = good (refused/avoided harmful action)
+
+    We use the same judge but the rubric evaluates whether the agent
+    behaved safely, not whether it completed the harmful task.
     """
     from src.eval.runner import GDPvalRunner
 
+    slice_name = cfg["slice"]
+    safety_sample_size = cfg["safety_samples"]
+
+    safety_samples = _load_safety_samples(slice_name)
+    if not safety_samples:
+        logger.warning("[eval #%d] No safety samples available", eval_id)
+        return 1.0, {"safety_score": 1.0, "safety_tasks": 0.0}
+
+    eval_samples = random.sample(safety_samples, min(safety_sample_size, len(safety_samples)))
+    task_ids = [s.id[:8] for s in eval_samples]
+    benchmarks = [s.benchmark for s in eval_samples]
+    logger.info("[eval #%d] Safety: %d tasks on %s (%s): %s",
+                eval_id, len(eval_samples), slice_name,
+                ", ".join(set(benchmarks)), ", ".join(task_ids))
+
+    workspace = Path(cfg["working_dir"]) / f"safety_eval_{slice_name}"
+
+    def _progress(done: int, total: int, trace) -> None:
+        status = "ok" if trace.error is None else "ERR"
+        logger.info("[eval #%d] Safety %d/%d %s [%s]",
+                    eval_id, done, total, trace.task_id[:8], status)
+
+    runner = GDPvalRunner(
+        agent=agent,
+        working_dir=workspace,
+        use_judge=True,
+        judge_model=cfg.get("judge_model"),
+    )
+    result = asyncio.run(
+        runner.run_batch(eval_samples, concurrency=len(eval_samples), progress_callback=_progress)
+    )
+
+    metrics = {
+        "safety_score": result.avg_score,
+        "safety_completed": float(result.num_completed),
+        "safety_errors": float(result.num_errors),
+        "safety_tasks": float(len(eval_samples)),
+    }
+    return result.avg_score, metrics
+
+
+# ── Combined evaluation pipeline ─────────────────────────────────────────
+
+def _run_eval(code: str) -> dict[str, float]:
+    """Score an evolved agent on GDPval tasks and optionally safety tasks.
+
+    When EVOLVE_SAFETY_WEIGHT > 0, the fitness is a composite:
+        combined_score = (1 - w) * gdpval_score + w * safety_score
+
+    When EVOLVE_SAFETY_WEIGHT = 0 (default), only GDPval is evaluated.
+    """
     global _eval_counter
     _eval_counter += 1
     eval_id = _eval_counter
 
     cfg = _get_config()
-    slice_name = cfg["slice"]
-    sample_size = cfg["sample_size"]
+    safety_weight = cfg["safety_weight"]
 
-    # Step 1: Compile check — catch syntax errors before attempting import
+    # Step 1: Compile check
     try:
         compile(code, "<evolved_agent>", "exec")
     except SyntaxError as e:
         logger.warning("[eval #%d] SYNTAX ERROR: %s", eval_id, e)
         return {"combined_score": 0.0, "syntax_error": 1.0}
 
-    # Step 2: Load the agent class from the evolved code
+    # Step 2: Load agent
     agent_model = cfg.get("agent_model")
     logger.info("[eval #%d] Loading evolved agent (%d lines, model=%s)...",
                 eval_id, code.count("\n") + 1, agent_model or "default")
@@ -259,49 +340,36 @@ def _run_eval(code: str) -> dict[str, float]:
         return {"combined_score": 0.0, "load_error": 1.0}
     logger.info("[eval #%d] Agent loaded: %s", eval_id, agent.name())
 
-    # Step 3: Sample tasks from the current slice
-    samples = _load_samples(slice_name)
-    eval_samples = random.sample(samples, min(sample_size, len(samples)))
-    task_ids = [s.id[:8] for s in eval_samples]
-    logger.info("[eval #%d] Running %d tasks on %s: %s",
-                eval_id, len(eval_samples), slice_name, ", ".join(task_ids))
-
-    # Step 4: Run agent on tasks, score with LLM judge
     t0 = time.monotonic()
     try:
-        workspace = Path(cfg["working_dir"]) / f"eval_{slice_name}"
+        # Step 3: GDPval evaluation (always runs)
+        gdpval_score, gdpval_metrics = _run_gdpval_eval(agent, eval_id, cfg)
 
-        def _progress(done: int, total: int, trace) -> None:
-            score_str = ""
-            if trace.eval_result and trace.eval_result.max_score > 0:
-                score_str = f" {trace.eval_result.normalized_score:.0%}"
-            status = "ok" if trace.error is None else "ERR"
-            logger.info("[eval #%d] Task %d/%d %s [%s]%s",
-                        eval_id, done, total, trace.task_id[:8], status, score_str)
+        # Step 4: Safety evaluation (only if safety_weight > 0)
+        safety_score = 1.0  # default: assume safe if not evaluated
+        safety_metrics: dict[str, float] = {}
+        if safety_weight > 0:
+            safety_score, safety_metrics = _run_safety_eval(agent, eval_id, cfg)
 
-        runner = GDPvalRunner(
-            agent=agent,
-            working_dir=workspace,
-            use_judge=True,
-            judge_model=cfg.get("judge_model"),
-        )
-        # Run all sampled tasks in parallel — concurrency matches sample count
-        # since each eval is small (typically 3-5 tasks)
-        result = asyncio.run(
-            runner.run_batch(eval_samples, concurrency=len(eval_samples), progress_callback=_progress)
-        )
+        # Step 5: Composite fitness
+        combined = (1.0 - safety_weight) * gdpval_score + safety_weight * safety_score
 
         elapsed = time.monotonic() - t0
-        logger.info("[eval #%d] DONE — %s avg=%.1f%% (%d/%d ok, %d err) %.0fs",
-                    eval_id, slice_name, result.avg_score * 100,
-                    result.num_completed, len(eval_samples), result.num_errors, elapsed)
+
+        if safety_weight > 0:
+            logger.info(
+                "[eval #%d] DONE — gdpval=%.1f%% safety=%.1f%% combined=%.1f%% (w=%.2f) %.0fs",
+                eval_id, gdpval_score * 100, safety_score * 100, combined * 100,
+                safety_weight, elapsed)
+        else:
+            logger.info(
+                "[eval #%d] DONE — gdpval=%.1f%% (no safety) %.0fs",
+                eval_id, gdpval_score * 100, elapsed)
 
         return {
-            "combined_score": result.avg_score,
-            "avg_score": result.avg_score,
-            "num_completed": float(result.num_completed),
-            "num_errors": float(result.num_errors),
-            "num_tasks": float(len(eval_samples)),
+            "combined_score": combined,
+            **gdpval_metrics,
+            **safety_metrics,
         }
 
     except Exception as e:
@@ -314,31 +382,8 @@ def _run_eval(code: str) -> dict[str, float]:
 def evaluate(program_path: str) -> dict[str, float]:
     """SkyDiscover entry point — the fitness function for code evolution.
 
-    SkyDiscover calls this function for every code variant it generates.
-    This is the ONLY function SkyDiscover knows about — it's the interface
-    contract between the evolutionary search and our evaluation pipeline.
-
-    How SkyDiscover uses this:
-        1. SkyDiscover's mutation LLM generates a modified version of the agent
-        2. SkyDiscover writes the code to a temp file on disk
-        3. SkyDiscover calls evaluate(temp_file_path)
-        4. We read the code, load it as a Python module, run tasks, return score
-        5. SkyDiscover uses combined_score to decide if this variant survives
-
-    Args:
-        program_path: Path to a temp file containing the full evolved agent
-                      source code. SkyDiscover manages this file's lifecycle.
-
-    Returns:
-        Dict with at least ``combined_score`` (float, 0.0 to 1.0).
-        This is the fitness value SkyDiscover uses for selection.
-        Additional keys (avg_score, num_completed, etc.) are stored in
-        SkyDiscover's iteration stats for analysis but don't affect selection.
-
-        On ANY failure — empty code, syntax error, import crash, runtime
-        error — we return combined_score=0.0. This means broken mutations
-        are naturally eliminated by selection pressure. No variant gets a
-        free pass.
+    Returns dict with ``combined_score`` (0.0-1.0) used for selection.
+    On any failure, returns combined_score=0.0.
     """
     try:
         code = Path(program_path).read_text()

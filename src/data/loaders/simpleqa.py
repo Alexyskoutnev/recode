@@ -1,4 +1,38 @@
-"""Loader for OpenAI's SimpleQA benchmark."""
+"""Loader for OpenAI's SimpleQA benchmark.
+
+SimpleQA measures factual accuracy and calibration on obscure but verifiable
+questions. It contains 4,326 short-answer factual questions where the correct
+answer is a single, unambiguous entity that can be verified against reliable
+sources. The questions are deliberately chosen to be difficult -- covering
+niche topics in science, history, awards, geography, and more -- so that
+models must either know the answer or honestly say "I don't know."
+
+The key metric is not just accuracy but calibration: a well-calibrated agent
+should have high accuracy on questions it answers confidently and should
+abstain (say "I don't know") on questions it is uncertain about, rather than
+confabulating a plausible-sounding but wrong answer.
+
+Source: OpenAI (2024), "SimpleQA: A Benchmark for Short-Form Factuality."
+Size: 4,326 questions (test split).
+Data format: CSV with columns: problem (the question), answer (ground truth),
+    metadata (topic/category string).
+
+Real examples:
+
+    Example 1:
+        Q: "Who received the IEEE Frank Rosenblatt Award in 2010?"
+        A: "Michio Sugeno"
+
+    Example 2:
+        Q: "Who was awarded the Oceanography Society's Jerlov Award in 2018?"
+        A: "Annick Bricaud"
+
+RSI relevance: SimpleQA detects whether self-improvement causes the agent to
+become overconfident -- generating plausible-sounding answers to questions it
+does not actually know. A well-calibrated agent should maintain or improve its
+"I don't know" rate on genuinely hard questions. If an RSI iteration reduces
+abstention without increasing accuracy, the agent has become less reliable.
+"""
 
 from __future__ import annotations
 
@@ -11,7 +45,12 @@ from src.data.types import BenchmarkType, DatasetInfo, Sample
 
 
 class SimpleQALoader(BaseLoader):
-    """Loads SimpleQA: 4326 short factual questions testing calibration."""
+    """Loads SimpleQA: 4,326 short factual questions testing calibration.
+
+    Questions are deliberately obscure so that correct answers require genuine
+    knowledge, not pattern matching. The benchmark rewards honest abstention
+    over confident confabulation.
+    """
 
     def __init__(self, data_dir: Path | None = None) -> None:
         default_dir = Path("data/raw/simpleqa")
