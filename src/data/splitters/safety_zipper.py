@@ -1,12 +1,9 @@
-"""Zipper schedule splitter for safety benchmarks (AgentHarm + ToolEmu).
+"""Zipper schedule splitter for ToolEmu safety benchmark.
 
 Creates deterministic, non-overlapping slices that align with the GDPval
-zipper schedule (S1-S8 dev, E1-E2 eval). Each slice gets a balanced mix
-of samples from both benchmarks.
+zipper schedule (S1-S8 dev, E1-E2 eval).
 
-AgentHarm: 208 samples across 8 harm categories
-ToolEmu:   144 samples across 36 toolkits
-Total:     352 safety samples → ~35 per slice (10 slices)
+ToolEmu: 144 samples across 36 toolkits → ~14 per slice (10 slices)
 
 The split is deterministic (sorted by ID, round-robin) so every evolution
 run evaluates on the exact same safety tasks per slice.
@@ -25,41 +22,24 @@ NUM_SLICES = NUM_DEV_SLICES + NUM_EVAL_SLICES
 
 
 def safety_zipper_split(
-    agentharm_samples: list[Sample],
     toolemu_samples: list[Sample],
 ) -> dict[str, dict[str, list[Sample]]]:
-    """Split safety samples into 10 slices aligned with GDPval's S1-S8, E1-E2.
+    """Split ToolEmu samples into 10 slices aligned with GDPval's S1-S8, E1-E2.
 
     Algorithm:
-    1. Sort each benchmark's samples by ID for determinism.
-    2. Round-robin assign each benchmark's samples across 10 slices independently.
-    3. Merge: each slice gets its share of AgentHarm + ToolEmu samples.
-
-    This ensures:
-    - Every slice has samples from both benchmarks
-    - Categories are distributed (not clustered in one slice)
-    - The split is fully reproducible
+    1. Sort samples by ID for determinism.
+    2. Round-robin assign across 10 slices.
 
     Returns:
         {"dev_slices": {"S1": [...], ...}, "eval_slices": {"E1": [...], ...}}
     """
-    def _round_robin(samples: list[Sample]) -> list[list[Sample]]:
-        sorted_samples = sorted(samples, key=lambda s: s.id)
-        slices: list[list[Sample]] = [[] for _ in range(NUM_SLICES)]
-        for i, s in enumerate(sorted_samples):
-            slices[i % NUM_SLICES].append(s)
-        return slices
+    sorted_samples = sorted(toolemu_samples, key=lambda s: s.id)
+    slices: list[list[Sample]] = [[] for _ in range(NUM_SLICES)]
+    for i, s in enumerate(sorted_samples):
+        slices[i % NUM_SLICES].append(s)
 
-    ah_slices = _round_robin(agentharm_samples)
-    te_slices = _round_robin(toolemu_samples)
-
-    # Merge: each slice gets AgentHarm + ToolEmu samples
-    merged: list[list[Sample]] = []
-    for i in range(NUM_SLICES):
-        merged.append(ah_slices[i] + te_slices[i])
-
-    dev_slices = {f"S{i+1}": merged[i] for i in range(NUM_DEV_SLICES)}
-    eval_slices = {f"E{i+1}": merged[NUM_DEV_SLICES + i] for i in range(NUM_EVAL_SLICES)}
+    dev_slices = {f"S{i+1}": slices[i] for i in range(NUM_DEV_SLICES)}
+    eval_slices = {f"E{i+1}": slices[NUM_DEV_SLICES + i] for i in range(NUM_EVAL_SLICES)}
 
     return {"dev_slices": dev_slices, "eval_slices": eval_slices}
 

@@ -14,6 +14,7 @@ from src.data.loaders.or_bench import ORBenchLoader
 from src.data.loaders.agentharm import AgentHarmLoader
 from src.data.loaders.toolemu import ToolEmuLoader
 from src.data.loaders.asb import ASBLoader
+from src.data.loaders.agent_safety_bench import AgentSafetyBenchLoader
 from src.data.types import BenchmarkType, DatasetInfo, Sample
 
 
@@ -27,6 +28,7 @@ _LOADER_CLASSES: dict[str, type[BaseLoader]] = {
     "agentharm": AgentHarmLoader,
     "toolemu": ToolEmuLoader,
     "asb": ASBLoader,
+    "agent_safety_bench": AgentSafetyBenchLoader,
 }
 
 

@@ -30,6 +30,7 @@ DATASETS: list[tuple[str, str, str | None, str | None]] = [
     ("harmbench", "huihui-ai/harmbench_behaviors", None, None),
     ("or_bench", "bench-llm/or-bench", "or-bench-hard-1k", None),
     ("agentharm", "ai-safety-institute/AgentHarm", "harmful", None),
+    ("agent_safety_bench", "thu-coai/Agent-SafetyBench", None, None),
 ]
 
 # Datasets that need manual download (not on HuggingFace):

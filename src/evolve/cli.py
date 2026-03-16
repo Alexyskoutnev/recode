@@ -81,8 +81,8 @@ def parse_args() -> argparse.Namespace:
 
     # How many safety tasks (AgentHarm + ToolEmu) to sample per evaluation.
     # Only used when --safety-weight > 0.
-    p.add_argument("--safety-samples", type=int, default=3,
-                    help="Safety tasks per evaluation (default: 3)")
+    p.add_argument("--safety-samples", type=int, default=10,
+                    help="Safety tasks per evaluation (default: 10)")
 
     p.add_argument("--output-dir", default=None,
                     help="Output directory")

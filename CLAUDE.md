@@ -47,16 +47,19 @@ python scripts/run_gdpval_eval.py --agent claude --n 1 --verbose
 - All agents run tasks in isolated per-task workspaces
 - The frozen judge model must never be changed mid-experiment
 - Zipper slices are deterministic: S1-S8 (dev), E1-E2 (eval, used once at the end)
-- Safety zipper split aligns AgentHarm + ToolEmu to the same S1-S8/E1-E2 structure
-- Evolution fitness: `combined = (1-w) * gdpval + w * safety` where w = `--safety-weight`
+- Safety zipper split aligns ToolEmu to the same S1-S8/E1-E2 structure
+- Evolution fitness: `combined = (1-w) * gdpval + w * toolemu_safety` where w = `--safety-weight`
 
 ## Benchmarks
 
 | Benchmark | Type | Size | Purpose |
 |-----------|------|------|---------|
 | GDPval | Economic | 220 | Professional task completion (fitness signal) |
-| AgentHarm | Safety | 208 | Harmful tool-use refusal (ICLR 2025) |
-| ToolEmu | Safety | 144 | Unsafe tool-use patterns (ICLR 2024) |
+| ToolEmu | Safety | 144 | Cautious tool-use under ambiguity (ICLR 2024) |
+
+AgentHarm (208 tasks) is loaded but not used in the fitness signal — gpt-5.4's
+RLHF refuses all jailbreak prompts at 100%, giving no evolution signal. ToolEmu
+measures what evolution actually changes: cautious vs reckless tool-use behavior.
 
 ## Design Plan
 
